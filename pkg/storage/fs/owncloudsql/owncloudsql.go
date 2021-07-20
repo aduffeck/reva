@@ -481,14 +481,10 @@ func (fs *ocfs) getStorage(ip string) (int, error) {
 	return fs.filecache.GetNumericStorageID("home::" + fs.getOwner(ip))
 }
 
-func (fs *ocfs) getUserStorage(ctx context.Context) (int, error) {
-	user, ok := user.ContextGetUser(ctx)
-	if !ok {
-		return -1, fmt.Errorf("could not get user for context")
-	}
-	id, err := fs.filecache.GetNumericStorageID("home::" + user.Username)
+func (fs *ocfs) getUserStorage(user string) (int, error) {
+	id, err := fs.filecache.GetNumericStorageID("home::" + user)
 	if err != nil {
-		id, err = fs.filecache.CreateStorage("home::" + user.Username)
+		id, err = fs.filecache.CreateStorage("home::" + user)
 	}
 	return id, err
 }
@@ -662,6 +658,7 @@ func (fs *ocfs) CreateHome(ctx context.Context) error {
 
 func (fs *ocfs) createHomeForUser(ctx context.Context, user string) error {
 	homePaths := []string{
+		filepath.Join(fs.c.DataDirectory, user),
 		filepath.Join(fs.c.DataDirectory, user, "files"),
 		filepath.Join(fs.c.DataDirectory, user, "files_trashbin"),
 		filepath.Join(fs.c.DataDirectory, user, "files_trashbin/files"),
@@ -669,7 +666,7 @@ func (fs *ocfs) createHomeForUser(ctx context.Context, user string) error {
 		filepath.Join(fs.c.DataDirectory, user, "uploads"),
 	}
 
-	storageID, err := fs.filecache.GetNumericStorageID("home::" + user)
+	storageID, err := fs.getUserStorage(user)
 	if err != nil {
 		return err
 	}
@@ -687,7 +684,9 @@ func (fs *ocfs) createHomeForUser(ctx context.Context, user string) error {
 			"etag":     calcEtag(ctx, fi),
 			"mimetype": "httpd/unix-directory",
 		}
-		_, err = fs.filecache.InsertOrUpdate(storageID, data)
+
+		allowEmptyParent := v == filepath.Join(fs.c.DataDirectory, user) // the root doesn't have a parent
+		_, err = fs.filecache.InsertOrUpdate(storageID, data, allowEmptyParent)
 		if err != nil {
 			return err
 		}
@@ -748,7 +747,7 @@ func (fs *ocfs) CreateDir(ctx context.Context, sp string) (err error) {
 	if err != nil {
 		return err
 	}
-	_, err = fs.filecache.InsertOrUpdate(storageID, data)
+	_, err = fs.filecache.InsertOrUpdate(storageID, data, false)
 	if err != nil {
 		if err != nil {
 			return err
@@ -1376,7 +1375,7 @@ func (fs *ocfs) archiveRevision(ctx context.Context, vbp string, ip string) erro
 			"permissions": 31, // 1: READ, 2: UPDATE, 4: CREATE, 8: DELETE, 16: SHARE
 		}
 
-		_, err = fs.filecache.InsertOrUpdate(storage, data)
+		_, err = fs.filecache.InsertOrUpdate(storage, data, false)
 		if err != nil {
 			return errors.Wrap(err, "could not create parent version directory")
 		}
@@ -1544,7 +1543,7 @@ func (fs *ocfs) RestoreRevision(ctx context.Context, ref *provider.Reference, re
 	if err != nil {
 		return err
 	}
-	_, err = fs.filecache.InsertOrUpdate(storageID, data)
+	_, err = fs.filecache.InsertOrUpdate(storageID, data, false)
 	if err != nil {
 		return err
 	}
@@ -1626,7 +1625,8 @@ func (fs *ocfs) EmptyRecycle(ctx context.Context) error {
 		return errors.Wrap(err, "owncloudsql: error deleting recycle files versions")
 	}
 
-	err = fs.filecache.EmptyRecycle()
+	u := user.ContextMustGetUser(ctx)
+	err = fs.filecache.EmptyRecycle(u.Username)
 	if err != nil {
 		return errors.Wrap(err, "owncloudsql: error deleting recycle items from the database")
 	}
