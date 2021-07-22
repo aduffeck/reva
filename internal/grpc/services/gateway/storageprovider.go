@@ -304,7 +304,7 @@ func (s *svc) getHome(_ context.Context) string {
 }
 
 func (s *svc) InitiateFileDownload(ctx context.Context, req *provider.InitiateFileDownloadRequest) (*gateway.InitiateFileDownloadResponse, error) {
-	p, st := s.getPath(ctx, req.Ref)
+	_, st := s.getPath(ctx, req.Ref)
 	if st.Code != rpc.Code_CODE_OK {
 		return &gateway.InitiateFileDownloadResponse{
 			Status: st,
@@ -324,8 +324,6 @@ func (s *svc) InitiateFileDownload(ctx context.Context, req *provider.InitiateFi
 		}, nil
 	}
 	return s.initiateFileDownload(ctx, req)
-
-	panic("gateway: download: unknown path:" + p)
 }
 
 func (s *svc) initiateFileDownload(ctx context.Context, req *provider.InitiateFileDownloadRequest) (*gateway.InitiateFileDownloadResponse, error) {
@@ -631,10 +629,8 @@ func (s *svc) statHome(ctx context.Context) (*provider.StatResponse, error) {
 		if resMtime.Before(resEtag.Timestamp) {
 			statRes.Info.Etag = resEtag.Etag
 		}
-	} else {
-		if s.c.EtagCacheTTL > 0 {
-			_ = s.etagCache.Set(statRes.Info.Owner.OpaqueId+":"+statRes.Info.Path, etagWithTS{statRes.Info.Etag, time.Now()})
-		}
+	} else if s.c.EtagCacheTTL > 0 {
+		_ = s.etagCache.Set(statRes.Info.Owner.OpaqueId+":"+statRes.Info.Path, etagWithTS{statRes.Info.Etag, time.Now()})
 	}
 
 	return statRes, nil
@@ -668,7 +664,7 @@ func (s *svc) stat(ctx context.Context, req *provider.StatRequest) (*provider.St
 		if len(embeddedMounts) > 0 {
 			etagHash := md5.New()
 			if res.Info != nil {
-				io.WriteString(etagHash, res.Info.Etag)
+				_, _ = io.WriteString(etagHash, res.Info.Etag)
 			}
 			for _, child := range embeddedMounts {
 				childStatRes, err := s.stat(ctx, &provider.StatRequest{Ref: &provider.Reference{Path: child}})
@@ -677,7 +673,7 @@ func (s *svc) stat(ctx context.Context, req *provider.StatRequest) (*provider.St
 						Status: status.NewStatusFromErrType(ctx, "stat ref: "+req.Ref.String(), err),
 					}, nil
 				}
-				io.WriteString(etagHash, childStatRes.Info.Etag)
+				_, _ = io.WriteString(etagHash, childStatRes.Info.Etag)
 			}
 
 			if res.Info == nil {
@@ -763,83 +759,6 @@ func (s *svc) Stat(ctx context.Context, req *provider.StatRequest) (*provider.St
 	}
 
 	return s.stat(ctx, req)
-
-	panic("gateway: stating an unknown path:" + p)
-}
-
-func (s *svc) checkRef(ctx context.Context, ri *provider.ResourceInfo) (*provider.ResourceInfo, string, error) {
-	if ri.Type != provider.ResourceType_RESOURCE_TYPE_REFERENCE {
-		panic("gateway: calling checkRef on a non reference type:" + ri.String())
-	}
-
-	// reference types MUST have a target resource id.
-	if ri.Target == "" {
-		err := errtypes.BadRequest("gateway: ref target is an empty uri")
-		return nil, "", err
-	}
-
-	uri, err := url.Parse(ri.Target)
-	if err != nil {
-		return nil, "", errors.Wrapf(err, "gateway: error parsing target uri: %s", ri.Target)
-	}
-
-	switch uri.Scheme {
-	case "cs3":
-		ref, err := s.handleCS3Ref(ctx, uri.Opaque)
-		return ref, "cs3", err
-	case "webdav":
-		return nil, "webdav", nil
-	default:
-		err := errtypes.BadRequest("gateway: no reference handler for scheme: " + uri.Scheme)
-		return nil, "", err
-	}
-}
-
-func (s *svc) handleCS3Ref(ctx context.Context, opaque string) (*provider.ResourceInfo, error) {
-	// a cs3 ref has the following layout: <storage_id>/<opaque_id>
-	parts := strings.SplitN(opaque, "/", 2)
-	if len(parts) < 2 {
-		err := errtypes.BadRequest("gateway: cs3 ref does not follow the layout storageid/opaqueid:" + opaque)
-		return nil, err
-	}
-
-	// we could call here the Stat method again, but that is calling for problems in case
-	// there is a loop of targets pointing to targets, so better avoid it.
-
-	req := &provider.StatRequest{
-		Ref: &provider.Reference{
-			ResourceId: &provider.ResourceId{
-				StorageId: parts[0],
-				OpaqueId:  parts[1],
-			},
-		},
-	}
-	res, err := s.stat(ctx, req)
-	if err != nil {
-		return nil, errors.Wrap(err, "gateway: error calling stat")
-	}
-
-	if res.Status.Code != rpc.Code_CODE_OK {
-		switch res.Status.Code {
-		case rpc.Code_CODE_NOT_FOUND:
-			return nil, errtypes.NotFound(req.Ref.String())
-		case rpc.Code_CODE_PERMISSION_DENIED:
-			return nil, errtypes.PermissionDenied(req.Ref.String())
-		case rpc.Code_CODE_INVALID_ARGUMENT, rpc.Code_CODE_FAILED_PRECONDITION, rpc.Code_CODE_OUT_OF_RANGE:
-			return nil, errtypes.BadRequest(req.Ref.String())
-		case rpc.Code_CODE_UNIMPLEMENTED:
-			return nil, errtypes.NotSupported(req.Ref.String())
-		default:
-			return nil, errtypes.InternalError("gateway: error stating target reference")
-		}
-	}
-
-	if res.Info.Type == provider.ResourceType_RESOURCE_TYPE_REFERENCE {
-		err := errtypes.BadRequest("gateway: error the target of a reference cannot be another reference")
-		return nil, err
-	}
-
-	return res.Info, nil
 }
 
 func (s *svc) ListContainerStream(_ *provider.ListContainerStreamRequest, _ gateway.GatewayAPI_ListContainerStreamServer) error {
@@ -957,8 +876,6 @@ func (s *svc) ListContainer(ctx context.Context, req *provider.ListContainerRequ
 	}
 
 	return s.listContainer(ctx, req)
-
-	panic("gateway: stating an unknown path:" + p)
 }
 
 func (s *svc) getPath(ctx context.Context, ref *provider.Reference, keys ...string) (string, *rpc.Status) {
@@ -978,41 +895,6 @@ func (s *svc) getPath(ctx context.Context, ref *provider.Reference, keys ...stri
 		return ref.Path, &rpc.Status{Code: rpc.Code_CODE_OK}
 	}
 	return "", &rpc.Status{Code: rpc.Code_CODE_INTERNAL}
-}
-
-// always validate that the path contains the share folder
-// split cannot be called with i<2
-func (s *svc) split(ctx context.Context, p string, i int) bool {
-	log := appctx.GetLogger(ctx)
-	if i < 2 {
-		panic("split called with i < 2")
-	}
-
-	parts := s.splitPath(ctx, p)
-
-	// validate that we have always at least two elements
-	if len(parts) < 2 {
-		return false
-	}
-
-	// validate the share folder is always the second element, first element is always the hardcoded value of "home"
-	if parts[1] != s.c.ShareFolder {
-		log.Debug().Msgf("gateway: split: parts[1]:%+v != shareFolder:%+v", parts[1], s.c.ShareFolder)
-		return false
-	}
-
-	log.Debug().Msgf("gateway: split: path:%+v parts:%+v shareFolder:%+v", p, parts, s.c.ShareFolder)
-
-	if len(parts) == i && parts[i-1] != "" {
-		return true
-	}
-
-	return false
-}
-
-func (s *svc) splitPath(_ context.Context, p string) []string {
-	p = strings.Trim(p, "/")
-	return strings.SplitN(p, "/", 4) // ["home", "MyShares", "photos", "Ibiza/beach.png"]
 }
 
 func (s *svc) CreateSymlink(ctx context.Context, req *provider.CreateSymlinkRequest) (*provider.CreateSymlinkResponse, error) {
