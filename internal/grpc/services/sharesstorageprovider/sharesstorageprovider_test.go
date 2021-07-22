@@ -220,6 +220,11 @@ var _ = Describe("Sharesstorageprovider", func() {
 							StorageId: "share1-storageid",
 							OpaqueId:  "shareddir",
 						},
+						Permissions: &collaboration.SharePermissions{
+							Permissions: &sprovider.ResourcePermissions{
+								Stat: true,
+							},
+						},
 					},
 				},
 			}, nil)
