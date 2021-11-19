@@ -36,7 +36,6 @@ import (
 	ctxpkg "github.com/cs3org/reva/pkg/ctx"
 	"github.com/cs3org/reva/pkg/errtypes"
 	"github.com/cs3org/reva/pkg/rgrpc/status"
-	"github.com/cs3org/reva/pkg/rgrpc/todo/pool"
 	"github.com/cs3org/reva/pkg/rhttp/router"
 	"github.com/cs3org/reva/pkg/utils"
 	"github.com/golang-jwt/jwt"
@@ -52,7 +51,7 @@ type transferClaims struct {
 	Target string `json:"target"`
 }
 
-func (s *svc) sign(_ context.Context, target string) (string, error) {
+func (s *Gateway) sign(_ context.Context, target string) (string, error) {
 	// Tus sends a separate request to the datagateway service for every chunk.
 	// For large files, this can take a long time, so we extend the expiration
 	ttl := time.Duration(s.c.TransferExpires) * time.Second
@@ -75,11 +74,11 @@ func (s *svc) sign(_ context.Context, target string) (string, error) {
 	return tkn, nil
 }
 
-func (s *svc) CreateHome(ctx context.Context, req *provider.CreateHomeRequest) (*provider.CreateHomeResponse, error) {
+func (s *Gateway) CreateHome(ctx context.Context, req *provider.CreateHomeRequest) (*provider.CreateHomeResponse, error) {
 	log := appctx.GetLogger(ctx)
 
 	// ask registry for home provider
-	storageRegistryClient, err := pool.GetStorageRegistryClient(s.c.StorageRegistryEndpoint)
+	storageRegistryClient, err := s.poolManager.GetStorageRegistryClient(s.c.StorageRegistryEndpoint)
 	if err != nil {
 		return nil, errors.Wrap(err, "gateway: error getting storage registry client")
 	}
@@ -138,7 +137,7 @@ func (s *svc) CreateHome(ctx context.Context, req *provider.CreateHomeRequest) (
 	}, nil
 }
 
-func (s *svc) CreateStorageSpace(ctx context.Context, req *provider.CreateStorageSpaceRequest) (*provider.CreateStorageSpaceResponse, error) {
+func (s *Gateway) CreateStorageSpace(ctx context.Context, req *provider.CreateStorageSpaceRequest) (*provider.CreateStorageSpaceResponse, error) {
 	log := appctx.GetLogger(ctx)
 	// TODO: needs to be fixed
 	c, _, err := s.findByPath(ctx, "/users")
@@ -158,7 +157,7 @@ func (s *svc) CreateStorageSpace(ctx context.Context, req *provider.CreateStorag
 	return res, nil
 }
 
-func (s *svc) ListStorageSpaces(ctx context.Context, req *provider.ListStorageSpacesRequest) (*provider.ListStorageSpacesResponse, error) {
+func (s *Gateway) ListStorageSpaces(ctx context.Context, req *provider.ListStorageSpacesRequest) (*provider.ListStorageSpacesResponse, error) {
 	log := appctx.GetLogger(ctx)
 	var spaceID *provider.StorageSpaceId
 	for _, f := range req.Filters {
@@ -172,7 +171,7 @@ func (s *svc) ListStorageSpaces(ctx context.Context, req *provider.ListStorageSp
 		providers []*registry.ProviderInfo
 		err       error
 	)
-	c, err := pool.GetStorageRegistryClient(s.c.StorageRegistryEndpoint)
+	c, err := s.poolManager.GetStorageRegistryClient(s.c.StorageRegistryEndpoint)
 	if err != nil {
 		return nil, errors.Wrap(err, "gateway: error getting storage registry client")
 	}
@@ -270,7 +269,7 @@ func (s *svc) ListStorageSpaces(ctx context.Context, req *provider.ListStorageSp
 	}, nil
 }
 
-func (s *svc) listStorageSpacesOnProvider(ctx context.Context, req *provider.ListStorageSpacesRequest, res *[]*provider.StorageSpace, p *registry.ProviderInfo, e *error, wg *sync.WaitGroup) {
+func (s *Gateway) listStorageSpacesOnProvider(ctx context.Context, req *provider.ListStorageSpacesRequest, res *[]*provider.StorageSpace, p *registry.ProviderInfo, e *error, wg *sync.WaitGroup) {
 	defer wg.Done()
 	c, err := s.getStorageProviderClient(ctx, p)
 	if err != nil {
@@ -287,7 +286,7 @@ func (s *svc) listStorageSpacesOnProvider(ctx context.Context, req *provider.Lis
 	*res = r.StorageSpaces
 }
 
-func (s *svc) UpdateStorageSpace(ctx context.Context, req *provider.UpdateStorageSpaceRequest) (*provider.UpdateStorageSpaceResponse, error) {
+func (s *Gateway) UpdateStorageSpace(ctx context.Context, req *provider.UpdateStorageSpaceRequest) (*provider.UpdateStorageSpaceResponse, error) {
 	log := appctx.GetLogger(ctx)
 	// TODO: needs to be fixed
 	c, _, err := s.find(ctx, &provider.Reference{ResourceId: req.StorageSpace.Root})
@@ -307,7 +306,7 @@ func (s *svc) UpdateStorageSpace(ctx context.Context, req *provider.UpdateStorag
 	return res, nil
 }
 
-func (s *svc) DeleteStorageSpace(ctx context.Context, req *provider.DeleteStorageSpaceRequest) (*provider.DeleteStorageSpaceResponse, error) {
+func (s *Gateway) DeleteStorageSpace(ctx context.Context, req *provider.DeleteStorageSpaceRequest) (*provider.DeleteStorageSpaceResponse, error) {
 	log := appctx.GetLogger(ctx)
 	// TODO: needs to be fixed
 	storageid, opaqeid, err := utils.SplitStorageSpaceID(req.Id.OpaqueId)
@@ -336,20 +335,22 @@ func (s *svc) DeleteStorageSpace(ctx context.Context, req *provider.DeleteStorag
 	return res, nil
 }
 
-func (s *svc) GetHome(ctx context.Context, _ *provider.GetHomeRequest) (*provider.GetHomeResponse, error) {
+func (s *Gateway) GetHome(ctx context.Context, _ *provider.GetHomeRequest) (*provider.GetHomeResponse, error) {
 	return &provider.GetHomeResponse{
 		Path:   s.getHome(ctx),
 		Status: status.NewOK(ctx),
 	}, nil
 }
 
-func (s *svc) getHome(ctx context.Context) string {
+func (s *Gateway) getHome(ctx context.Context) string {
+	//u := ctxpkg.ContextMustGetUser(ctx)
+	//return filepath.Join("/personal", u.Id.OpaqueId)
 	// TODO use user layout
 	u := ctxpkg.ContextMustGetUser(ctx)
 	return filepath.Join("/users", u.Id.OpaqueId)
 }
 
-func (s *svc) InitiateFileDownload(ctx context.Context, req *provider.InitiateFileDownloadRequest) (*gateway.InitiateFileDownloadResponse, error) {
+func (s *Gateway) InitiateFileDownload(ctx context.Context, req *provider.InitiateFileDownloadRequest) (*gateway.InitiateFileDownloadResponse, error) {
 	// TODO(ishank011): enable downloading references spread across storage providers, eg. /eos
 	var c provider.ProviderAPIClient
 	var err error
@@ -406,7 +407,7 @@ func (s *svc) InitiateFileDownload(ctx context.Context, req *provider.InitiateFi
 	}, nil
 }
 
-func (s *svc) InitiateFileUpload(ctx context.Context, req *provider.InitiateFileUploadRequest) (*gateway.InitiateFileUploadResponse, error) {
+func (s *Gateway) InitiateFileUpload(ctx context.Context, req *provider.InitiateFileUploadRequest) (*gateway.InitiateFileUploadResponse, error) {
 	var c provider.ProviderAPIClient
 	var err error
 	c, req.Ref, err = s.findAndUnwrap(ctx, req.Ref)
@@ -469,7 +470,7 @@ func (s *svc) InitiateFileUpload(ctx context.Context, req *provider.InitiateFile
 	}, nil
 }
 
-func (s *svc) GetPath(ctx context.Context, req *provider.GetPathRequest) (*provider.GetPathResponse, error) {
+func (s *Gateway) GetPath(ctx context.Context, req *provider.GetPathRequest) (*provider.GetPathResponse, error) {
 	statReq := &provider.StatRequest{Ref: &provider.Reference{ResourceId: req.ResourceId}}
 	statRes, err := s.Stat(ctx, statReq)
 	if err != nil {
@@ -489,7 +490,7 @@ func (s *svc) GetPath(ctx context.Context, req *provider.GetPathRequest) (*provi
 	}, nil
 }
 
-func (s *svc) CreateContainer(ctx context.Context, req *provider.CreateContainerRequest) (*provider.CreateContainerResponse, error) {
+func (s *Gateway) CreateContainer(ctx context.Context, req *provider.CreateContainerRequest) (*provider.CreateContainerResponse, error) {
 	var c provider.ProviderAPIClient
 	var err error
 	c, req.Ref, err = s.findAndUnwrap(ctx, req.Ref)
@@ -507,7 +508,7 @@ func (s *svc) CreateContainer(ctx context.Context, req *provider.CreateContainer
 	return res, nil
 }
 
-func (s *svc) Delete(ctx context.Context, req *provider.DeleteRequest) (*provider.DeleteResponse, error) {
+func (s *Gateway) Delete(ctx context.Context, req *provider.DeleteRequest) (*provider.DeleteResponse, error) {
 	// TODO(ishank011): enable deleting references spread across storage providers, eg. /eos
 	var c provider.ProviderAPIClient
 	var err error
@@ -531,7 +532,7 @@ func (s *svc) Delete(ctx context.Context, req *provider.DeleteRequest) (*provide
 	return res, nil
 }
 
-func (s *svc) Move(ctx context.Context, req *provider.MoveRequest) (*provider.MoveResponse, error) {
+func (s *Gateway) Move(ctx context.Context, req *provider.MoveRequest) (*provider.MoveResponse, error) {
 	var c provider.ProviderAPIClient
 	var err error
 
@@ -572,7 +573,7 @@ func (s *svc) Move(ctx context.Context, req *provider.MoveRequest) (*provider.Mo
 	return c.Move(ctx, req)
 }
 
-func (s *svc) SetArbitraryMetadata(ctx context.Context, req *provider.SetArbitraryMetadataRequest) (*provider.SetArbitraryMetadataResponse, error) {
+func (s *Gateway) SetArbitraryMetadata(ctx context.Context, req *provider.SetArbitraryMetadataRequest) (*provider.SetArbitraryMetadataResponse, error) {
 	// TODO(ishank011): enable for references spread across storage providers, eg. /eos
 	var c provider.ProviderAPIClient
 	var err error
@@ -594,7 +595,7 @@ func (s *svc) SetArbitraryMetadata(ctx context.Context, req *provider.SetArbitra
 	return res, nil
 }
 
-func (s *svc) UnsetArbitraryMetadata(ctx context.Context, req *provider.UnsetArbitraryMetadataRequest) (*provider.UnsetArbitraryMetadataResponse, error) {
+func (s *Gateway) UnsetArbitraryMetadata(ctx context.Context, req *provider.UnsetArbitraryMetadataRequest) (*provider.UnsetArbitraryMetadataResponse, error) {
 	// TODO(ishank011): enable for references spread across storage providers, eg. /eos
 	var c provider.ProviderAPIClient
 	var err error
@@ -626,7 +627,7 @@ func (s *svc) UnsetArbitraryMetadata(ctx context.Context, req *provider.UnsetArb
 // - The most recent mtime determines the etag
 // - The size is summed up for all providers
 // TODO cache info
-func (s *svc) Stat(ctx context.Context, req *provider.StatRequest) (*provider.StatResponse, error) {
+func (s *Gateway) Stat(ctx context.Context, req *provider.StatRequest) (*provider.StatResponse, error) {
 	// find the providers
 	providers, err := s.findProviders(ctx, req.Ref)
 	if err != nil {
@@ -782,7 +783,7 @@ func (s *svc) Stat(ctx context.Context, req *provider.StatRequest) (*provider.St
 	return &provider.StatResponse{Status: &rpc.Status{Code: rpc.Code_CODE_OK}, Info: info}, nil
 }
 
-func (s *svc) ListContainerStream(_ *provider.ListContainerStreamRequest, _ gateway.GatewayAPI_ListContainerStreamServer) error {
+func (s *Gateway) ListContainerStream(_ *provider.ListContainerStreamRequest, _ gateway.GatewayAPI_ListContainerStreamServer) error {
 	return errtypes.NotSupported("Unimplemented")
 }
 
@@ -797,7 +798,7 @@ func (s *svc) ListContainerStream(_ *provider.ListContainerStreamRequest, _ gate
 // - The most recent mtime determines the etag of the listed collection
 // - The size of the root ... is summed up for all providers
 // TODO cache info
-func (s *svc) ListContainer(ctx context.Context, req *provider.ListContainerRequest) (*provider.ListContainerResponse, error) {
+func (s *Gateway) ListContainer(ctx context.Context, req *provider.ListContainerRequest) (*provider.ListContainerResponse, error) {
 	// find the providers
 	providers, err := s.findProviders(ctx, req.Ref)
 	if err != nil {
@@ -969,13 +970,13 @@ func (s *svc) ListContainer(ctx context.Context, req *provider.ListContainerRequ
 	}, nil
 }
 
-func (s *svc) CreateSymlink(ctx context.Context, req *provider.CreateSymlinkRequest) (*provider.CreateSymlinkResponse, error) {
+func (s *Gateway) CreateSymlink(ctx context.Context, req *provider.CreateSymlinkRequest) (*provider.CreateSymlinkResponse, error) {
 	return &provider.CreateSymlinkResponse{
 		Status: status.NewUnimplemented(ctx, errtypes.NotSupported("CreateSymlink not implemented"), "CreateSymlink not implemented"),
 	}, nil
 }
 
-func (s *svc) ListFileVersions(ctx context.Context, req *provider.ListFileVersionsRequest) (*provider.ListFileVersionsResponse, error) {
+func (s *Gateway) ListFileVersions(ctx context.Context, req *provider.ListFileVersionsRequest) (*provider.ListFileVersionsResponse, error) {
 	var c provider.ProviderAPIClient
 	var err error
 	c, req.Ref, err = s.findAndUnwrap(ctx, req.Ref)
@@ -993,7 +994,7 @@ func (s *svc) ListFileVersions(ctx context.Context, req *provider.ListFileVersio
 	return res, nil
 }
 
-func (s *svc) RestoreFileVersion(ctx context.Context, req *provider.RestoreFileVersionRequest) (*provider.RestoreFileVersionResponse, error) {
+func (s *Gateway) RestoreFileVersion(ctx context.Context, req *provider.RestoreFileVersionRequest) (*provider.RestoreFileVersionResponse, error) {
 	var c provider.ProviderAPIClient
 	var err error
 	c, req.Ref, err = s.findAndUnwrap(ctx, req.Ref)
@@ -1011,12 +1012,12 @@ func (s *svc) RestoreFileVersion(ctx context.Context, req *provider.RestoreFileV
 	return res, nil
 }
 
-func (s *svc) ListRecycleStream(_ *provider.ListRecycleStreamRequest, _ gateway.GatewayAPI_ListRecycleStreamServer) error {
+func (s *Gateway) ListRecycleStream(_ *provider.ListRecycleStreamRequest, _ gateway.GatewayAPI_ListRecycleStreamServer) error {
 	return errtypes.NotSupported("ListRecycleStream unimplemented")
 }
 
 // TODO use the ListRecycleRequest.Ref to only list the trash of a specific storage
-func (s *svc) ListRecycle(ctx context.Context, req *provider.ListRecycleRequest) (*provider.ListRecycleResponse, error) {
+func (s *Gateway) ListRecycle(ctx context.Context, req *provider.ListRecycleRequest) (*provider.ListRecycleResponse, error) {
 	c, p, err := s.find(ctx, req.Ref)
 	if err != nil {
 		return &provider.ListRecycleResponse{
@@ -1070,7 +1071,7 @@ func (s *svc) ListRecycle(ctx context.Context, req *provider.ListRecycleRequest)
 	return res, nil
 }
 
-func (s *svc) RestoreRecycleItem(ctx context.Context, req *provider.RestoreRecycleItemRequest) (*provider.RestoreRecycleItemResponse, error) {
+func (s *Gateway) RestoreRecycleItem(ctx context.Context, req *provider.RestoreRecycleItemRequest) (*provider.RestoreRecycleItemResponse, error) {
 	var c provider.ProviderAPIClient
 	var err error
 	c, req.Ref, err = s.findAndUnwrap(ctx, req.Ref)
@@ -1100,7 +1101,7 @@ func (s *svc) RestoreRecycleItem(ctx context.Context, req *provider.RestoreRecyc
 	return res, nil
 }
 
-func (s *svc) PurgeRecycle(ctx context.Context, req *provider.PurgeRecycleRequest) (*provider.PurgeRecycleResponse, error) {
+func (s *Gateway) PurgeRecycle(ctx context.Context, req *provider.PurgeRecycleRequest) (*provider.PurgeRecycleResponse, error) {
 	c, relativeReference, err := s.findAndUnwrap(ctx, req.Ref)
 	if err != nil {
 		return &provider.PurgeRecycleResponse{
@@ -1119,7 +1120,7 @@ func (s *svc) PurgeRecycle(ctx context.Context, req *provider.PurgeRecycleReques
 	return res, nil
 }
 
-func (s *svc) GetQuota(ctx context.Context, req *gateway.GetQuotaRequest) (*provider.GetQuotaResponse, error) {
+func (s *Gateway) GetQuota(ctx context.Context, req *gateway.GetQuotaRequest) (*provider.GetQuotaResponse, error) {
 	c, relativeReference, err := s.findAndUnwrap(ctx, req.Ref)
 	if err != nil {
 		return &provider.GetQuotaResponse{
@@ -1137,12 +1138,12 @@ func (s *svc) GetQuota(ctx context.Context, req *gateway.GetQuotaRequest) (*prov
 	return res, nil
 }
 
-func (s *svc) findByPath(ctx context.Context, path string) (provider.ProviderAPIClient, *registry.ProviderInfo, error) {
+func (s *Gateway) findByPath(ctx context.Context, path string) (provider.ProviderAPIClient, *registry.ProviderInfo, error) {
 	ref := &provider.Reference{Path: path}
 	return s.find(ctx, ref)
 }
 
-func (s *svc) find(ctx context.Context, ref *provider.Reference) (provider.ProviderAPIClient, *registry.ProviderInfo, error) {
+func (s *Gateway) find(ctx context.Context, ref *provider.Reference) (provider.ProviderAPIClient, *registry.ProviderInfo, error) {
 	p, err := s.findProviders(ctx, ref)
 	if err != nil {
 		return nil, nil, err
@@ -1152,7 +1153,7 @@ func (s *svc) find(ctx context.Context, ref *provider.Reference) (provider.Provi
 	return client, p[0], err
 }
 
-func (s *svc) findAndUnwrap(ctx context.Context, ref *provider.Reference) (provider.ProviderAPIClient, *provider.Reference, error) {
+func (s *Gateway) findAndUnwrap(ctx context.Context, ref *provider.Reference) (provider.ProviderAPIClient, *provider.Reference, error) {
 	c, p, err := s.find(ctx, ref)
 	if err != nil {
 		return nil, nil, err
@@ -1174,8 +1175,8 @@ func (s *svc) findAndUnwrap(ctx context.Context, ref *provider.Reference) (provi
 	return c, relativeReference, nil
 }
 
-func (s *svc) getStorageProviderClient(_ context.Context, p *registry.ProviderInfo) (provider.ProviderAPIClient, error) {
-	c, err := pool.GetStorageProviderServiceClient(p.Address)
+func (s *Gateway) getStorageProviderClient(_ context.Context, p *registry.ProviderInfo) (provider.ProviderAPIClient, error) {
+	c, err := s.poolManager.GetStorageProviderServiceClient(p.Address)
 	if err != nil {
 		err = errors.Wrap(err, "gateway: error getting a storage provider client")
 		return nil, err
@@ -1184,8 +1185,8 @@ func (s *svc) getStorageProviderClient(_ context.Context, p *registry.ProviderIn
 	return c, nil
 }
 
-func (s *svc) findProviders(ctx context.Context, ref *provider.Reference) ([]*registry.ProviderInfo, error) {
-	c, err := pool.GetStorageRegistryClient(s.c.StorageRegistryEndpoint)
+func (s *Gateway) findProviders(ctx context.Context, ref *provider.Reference) ([]*registry.ProviderInfo, error) {
+	c, err := s.poolManager.GetStorageRegistryClient(s.c.StorageRegistryEndpoint)
 	if err != nil {
 		return nil, errors.Wrap(err, "gateway: error getting storage registry client")
 	}

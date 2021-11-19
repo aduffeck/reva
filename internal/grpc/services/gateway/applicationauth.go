@@ -27,7 +27,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-func (s *svc) GenerateAppPassword(ctx context.Context, req *appauthpb.GenerateAppPasswordRequest) (*appauthpb.GenerateAppPasswordResponse, error) {
+func (s *Gateway) GenerateAppPassword(ctx context.Context, req *appauthpb.GenerateAppPasswordRequest) (*appauthpb.GenerateAppPasswordResponse, error) {
 	c, err := pool.GetAppAuthProviderServiceClient(s.c.ApplicationAuthEndpoint)
 	if err != nil {
 		err = errors.Wrap(err, "gateway: error calling GetAppAuthProviderServiceClient")
@@ -44,7 +44,7 @@ func (s *svc) GenerateAppPassword(ctx context.Context, req *appauthpb.GenerateAp
 	return res, nil
 }
 
-func (s *svc) ListAppPasswords(ctx context.Context, req *appauthpb.ListAppPasswordsRequest) (*appauthpb.ListAppPasswordsResponse, error) {
+func (s *Gateway) ListAppPasswords(ctx context.Context, req *appauthpb.ListAppPasswordsRequest) (*appauthpb.ListAppPasswordsResponse, error) {
 	c, err := pool.GetAppAuthProviderServiceClient(s.c.ApplicationAuthEndpoint)
 	if err != nil {
 		err = errors.Wrap(err, "gateway: error calling GetAppAuthProviderServiceClient")
@@ -61,7 +61,7 @@ func (s *svc) ListAppPasswords(ctx context.Context, req *appauthpb.ListAppPasswo
 	return res, nil
 }
 
-func (s *svc) InvalidateAppPassword(ctx context.Context, req *appauthpb.InvalidateAppPasswordRequest) (*appauthpb.InvalidateAppPasswordResponse, error) {
+func (s *Gateway) InvalidateAppPassword(ctx context.Context, req *appauthpb.InvalidateAppPasswordRequest) (*appauthpb.InvalidateAppPasswordResponse, error) {
 	c, err := pool.GetAppAuthProviderServiceClient(s.c.ApplicationAuthEndpoint)
 	if err != nil {
 		err = errors.Wrap(err, "gateway: error calling GetAppAuthProviderServiceClient")
@@ -78,7 +78,7 @@ func (s *svc) InvalidateAppPassword(ctx context.Context, req *appauthpb.Invalida
 	return res, nil
 }
 
-func (s *svc) GetAppPassword(ctx context.Context, req *appauthpb.GetAppPasswordRequest) (*appauthpb.GetAppPasswordResponse, error) {
+func (s *Gateway) GetAppPassword(ctx context.Context, req *appauthpb.GetAppPasswordRequest) (*appauthpb.GetAppPasswordResponse, error) {
 	c, err := pool.GetAppAuthProviderServiceClient(s.c.ApplicationAuthEndpoint)
 	if err != nil {
 		err = errors.Wrap(err, "gateway: error calling GetAppAuthProviderServiceClient")

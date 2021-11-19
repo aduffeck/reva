@@ -80,6 +80,13 @@ var (
 	maxCallRecvMsgSize     = 10240000
 )
 
+type Manager struct {
+}
+
+func NewManager() *Manager {
+	return &Manager{}
+}
+
 // NewConn creates a new connection to a grpc server
 // with open census tracing support.
 // TODO(labkode): make grpc tls configurable.
@@ -192,6 +199,9 @@ func GetStorageProviderServiceClient(endpoint string) (storageprovider.ProviderA
 	v := storageprovider.NewProviderAPIClient(conn)
 	storageProviders.conn[endpoint] = v
 	return v, nil
+}
+func (*Manager) GetStorageProviderServiceClient(endpoint string) (storageprovider.ProviderAPIClient, error) {
+	return GetStorageProviderServiceClient(endpoint)
 }
 
 // GetAuthRegistryServiceClient returns a new AuthRegistryServiceClient.
@@ -404,6 +414,9 @@ func GetStorageRegistryClient(endpoint string) (storageregistry.RegistryAPIClien
 	v := storageregistry.NewRegistryAPIClient(conn)
 	storageRegistries.conn[endpoint] = v
 	return v, nil
+}
+func (*Manager) GetStorageRegistryClient(endpoint string) (storageregistry.RegistryAPIClient, error) {
+	return GetStorageRegistryClient(endpoint)
 }
 
 // GetOCMProviderAuthorizerClient returns a new OCMProviderAuthorizerClient.

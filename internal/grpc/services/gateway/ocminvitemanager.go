@@ -27,7 +27,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-func (s *svc) GenerateInviteToken(ctx context.Context, req *invitepb.GenerateInviteTokenRequest) (*invitepb.GenerateInviteTokenResponse, error) {
+func (s *Gateway) GenerateInviteToken(ctx context.Context, req *invitepb.GenerateInviteTokenRequest) (*invitepb.GenerateInviteTokenResponse, error) {
 	c, err := pool.GetOCMInviteManagerClient(s.c.OCMInviteManagerEndpoint)
 	if err != nil {
 		return &invitepb.GenerateInviteTokenResponse{
@@ -43,7 +43,7 @@ func (s *svc) GenerateInviteToken(ctx context.Context, req *invitepb.GenerateInv
 	return res, nil
 }
 
-func (s *svc) ForwardInvite(ctx context.Context, req *invitepb.ForwardInviteRequest) (*invitepb.ForwardInviteResponse, error) {
+func (s *Gateway) ForwardInvite(ctx context.Context, req *invitepb.ForwardInviteRequest) (*invitepb.ForwardInviteResponse, error) {
 	c, err := pool.GetOCMInviteManagerClient(s.c.OCMInviteManagerEndpoint)
 	if err != nil {
 		return &invitepb.ForwardInviteResponse{
@@ -59,7 +59,7 @@ func (s *svc) ForwardInvite(ctx context.Context, req *invitepb.ForwardInviteRequ
 	return res, nil
 }
 
-func (s *svc) AcceptInvite(ctx context.Context, req *invitepb.AcceptInviteRequest) (*invitepb.AcceptInviteResponse, error) {
+func (s *Gateway) AcceptInvite(ctx context.Context, req *invitepb.AcceptInviteRequest) (*invitepb.AcceptInviteResponse, error) {
 	c, err := pool.GetOCMInviteManagerClient(s.c.OCMInviteManagerEndpoint)
 	if err != nil {
 		return &invitepb.AcceptInviteResponse{
@@ -75,7 +75,7 @@ func (s *svc) AcceptInvite(ctx context.Context, req *invitepb.AcceptInviteReques
 	return res, nil
 }
 
-func (s *svc) GetAcceptedUser(ctx context.Context, req *invitepb.GetAcceptedUserRequest) (*invitepb.GetAcceptedUserResponse, error) {
+func (s *Gateway) GetAcceptedUser(ctx context.Context, req *invitepb.GetAcceptedUserRequest) (*invitepb.GetAcceptedUserResponse, error) {
 	c, err := pool.GetOCMInviteManagerClient(s.c.OCMInviteManagerEndpoint)
 	if err != nil {
 		return &invitepb.GetAcceptedUserResponse{
@@ -91,7 +91,7 @@ func (s *svc) GetAcceptedUser(ctx context.Context, req *invitepb.GetAcceptedUser
 	return res, nil
 }
 
-func (s *svc) FindAcceptedUsers(ctx context.Context, req *invitepb.FindAcceptedUsersRequest) (*invitepb.FindAcceptedUsersResponse, error) {
+func (s *Gateway) FindAcceptedUsers(ctx context.Context, req *invitepb.FindAcceptedUsersRequest) (*invitepb.FindAcceptedUsersResponse, error) {
 	c, err := pool.GetOCMInviteManagerClient(s.c.OCMInviteManagerEndpoint)
 	if err != nil {
 		return &invitepb.FindAcceptedUsersResponse{

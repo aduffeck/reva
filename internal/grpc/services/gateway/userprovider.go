@@ -27,7 +27,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-func (s *svc) GetUser(ctx context.Context, req *user.GetUserRequest) (*user.GetUserResponse, error) {
+func (s *Gateway) GetUser(ctx context.Context, req *user.GetUserRequest) (*user.GetUserResponse, error) {
 	c, err := pool.GetUserProviderServiceClient(s.c.UserProviderEndpoint)
 	if err != nil {
 		return &user.GetUserResponse{
@@ -43,7 +43,7 @@ func (s *svc) GetUser(ctx context.Context, req *user.GetUserRequest) (*user.GetU
 	return res, nil
 }
 
-func (s *svc) GetUserByClaim(ctx context.Context, req *user.GetUserByClaimRequest) (*user.GetUserByClaimResponse, error) {
+func (s *Gateway) GetUserByClaim(ctx context.Context, req *user.GetUserByClaimRequest) (*user.GetUserByClaimResponse, error) {
 	c, err := pool.GetUserProviderServiceClient(s.c.UserProviderEndpoint)
 	if err != nil {
 		return &user.GetUserByClaimResponse{
@@ -59,7 +59,7 @@ func (s *svc) GetUserByClaim(ctx context.Context, req *user.GetUserByClaimReques
 	return res, nil
 }
 
-func (s *svc) FindUsers(ctx context.Context, req *user.FindUsersRequest) (*user.FindUsersResponse, error) {
+func (s *Gateway) FindUsers(ctx context.Context, req *user.FindUsersRequest) (*user.FindUsersResponse, error) {
 	c, err := pool.GetUserProviderServiceClient(s.c.UserProviderEndpoint)
 	if err != nil {
 		return &user.FindUsersResponse{
@@ -75,7 +75,7 @@ func (s *svc) FindUsers(ctx context.Context, req *user.FindUsersRequest) (*user.
 	return res, nil
 }
 
-func (s *svc) GetUserGroups(ctx context.Context, req *user.GetUserGroupsRequest) (*user.GetUserGroupsResponse, error) {
+func (s *Gateway) GetUserGroups(ctx context.Context, req *user.GetUserGroupsRequest) (*user.GetUserGroupsResponse, error) {
 	c, err := pool.GetUserProviderServiceClient(s.c.UserProviderEndpoint)
 	if err != nil {
 		return &user.GetUserGroupsResponse{

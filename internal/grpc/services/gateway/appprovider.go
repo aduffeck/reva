@@ -43,7 +43,7 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
-func (s *svc) OpenInApp(ctx context.Context, req *gateway.OpenInAppRequest) (*providerpb.OpenInAppResponse, error) {
+func (s *Gateway) OpenInApp(ctx context.Context, req *gateway.OpenInAppRequest) (*providerpb.OpenInAppResponse, error) {
 
 	resChild := ""
 	statRes, err := s.Stat(ctx, &storageprovider.StatRequest{
@@ -94,7 +94,7 @@ func (s *svc) OpenInApp(ctx context.Context, req *gateway.OpenInAppRequest) (*pr
 	return s.openLocalResources(ctx, fileInfo, req.ViewMode, req.App)
 }
 
-func (s *svc) openFederatedShares(ctx context.Context, targetURL string, vm gateway.OpenInAppRequest_ViewMode, app string,
+func (s *Gateway) openFederatedShares(ctx context.Context, targetURL string, vm gateway.OpenInAppRequest_ViewMode, app string,
 	insecure, skipVerify bool, nameQueries ...string) (*providerpb.OpenInAppResponse, error) {
 	log := appctx.GetLogger(ctx)
 	targetURL, err := appendNameQuery(targetURL, nameQueries...)
@@ -145,7 +145,7 @@ func (s *svc) openFederatedShares(ctx context.Context, targetURL string, vm gate
 	return res, nil
 }
 
-func (s *svc) openLocalResources(ctx context.Context, ri *storageprovider.ResourceInfo,
+func (s *Gateway) openLocalResources(ctx context.Context, ri *storageprovider.ResourceInfo,
 	vm gateway.OpenInAppRequest_ViewMode, app string) (*providerpb.OpenInAppResponse, error) {
 
 	accessToken, ok := ctxpkg.ContextGetToken(ctx)
@@ -185,7 +185,7 @@ func (s *svc) openLocalResources(ctx context.Context, ri *storageprovider.Resour
 	return res, nil
 }
 
-func (s *svc) findAppProvider(ctx context.Context, ri *storageprovider.ResourceInfo, app string) (*registry.ProviderInfo, error) {
+func (s *Gateway) findAppProvider(ctx context.Context, ri *storageprovider.ResourceInfo, app string) (*registry.ProviderInfo, error) {
 	c, err := pool.GetAppRegistryClient(s.c.AppRegistryEndpoint)
 	if err != nil {
 		err = errors.Wrap(err, "gateway: error getting appregistry client")

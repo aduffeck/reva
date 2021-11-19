@@ -27,7 +27,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-func (s *svc) CreateOCMCoreShare(ctx context.Context, req *ocmcore.CreateOCMCoreShareRequest) (*ocmcore.CreateOCMCoreShareResponse, error) {
+func (s *Gateway) CreateOCMCoreShare(ctx context.Context, req *ocmcore.CreateOCMCoreShareRequest) (*ocmcore.CreateOCMCoreShareResponse, error) {
 	c, err := pool.GetOCMCoreClient(s.c.OCMCoreEndpoint)
 	if err != nil {
 		return &ocmcore.CreateOCMCoreShareResponse{

@@ -27,7 +27,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-func (s *svc) IsProviderAllowed(ctx context.Context, req *ocmprovider.IsProviderAllowedRequest) (*ocmprovider.IsProviderAllowedResponse, error) {
+func (s *Gateway) IsProviderAllowed(ctx context.Context, req *ocmprovider.IsProviderAllowedRequest) (*ocmprovider.IsProviderAllowedResponse, error) {
 	c, err := pool.GetOCMProviderAuthorizerClient(s.c.OCMProviderAuthorizerEndpoint)
 	if err != nil {
 		return &ocmprovider.IsProviderAllowedResponse{
@@ -43,7 +43,7 @@ func (s *svc) IsProviderAllowed(ctx context.Context, req *ocmprovider.IsProvider
 	return res, nil
 }
 
-func (s *svc) GetInfoByDomain(ctx context.Context, req *ocmprovider.GetInfoByDomainRequest) (*ocmprovider.GetInfoByDomainResponse, error) {
+func (s *Gateway) GetInfoByDomain(ctx context.Context, req *ocmprovider.GetInfoByDomainRequest) (*ocmprovider.GetInfoByDomainResponse, error) {
 	c, err := pool.GetOCMProviderAuthorizerClient(s.c.OCMProviderAuthorizerEndpoint)
 	if err != nil {
 		return &ocmprovider.GetInfoByDomainResponse{
@@ -59,7 +59,7 @@ func (s *svc) GetInfoByDomain(ctx context.Context, req *ocmprovider.GetInfoByDom
 	return res, nil
 }
 
-func (s *svc) ListAllProviders(ctx context.Context, req *ocmprovider.ListAllProvidersRequest) (*ocmprovider.ListAllProvidersResponse, error) {
+func (s *Gateway) ListAllProviders(ctx context.Context, req *ocmprovider.ListAllProvidersRequest) (*ocmprovider.ListAllProvidersResponse, error) {
 	c, err := pool.GetOCMProviderAuthorizerClient(s.c.OCMProviderAuthorizerEndpoint)
 	if err != nil {
 		return &ocmprovider.ListAllProvidersResponse{

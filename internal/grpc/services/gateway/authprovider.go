@@ -44,7 +44,7 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
-func (s *svc) Authenticate(ctx context.Context, req *gateway.AuthenticateRequest) (*gateway.AuthenticateResponse, error) {
+func (s *Gateway) Authenticate(ctx context.Context, req *gateway.AuthenticateRequest) (*gateway.AuthenticateResponse, error) {
 	log := appctx.GetLogger(ctx)
 
 	// find auth provider
@@ -183,7 +183,7 @@ func (s *svc) Authenticate(ctx context.Context, req *gateway.AuthenticateRequest
 	return gwRes, nil
 }
 
-func (s *svc) WhoAmI(ctx context.Context, req *gateway.WhoAmIRequest) (*gateway.WhoAmIResponse, error) {
+func (s *Gateway) WhoAmI(ctx context.Context, req *gateway.WhoAmIRequest) (*gateway.WhoAmIResponse, error) {
 	u, _, err := s.tokenmgr.DismantleToken(ctx, req.Token)
 	if err != nil {
 		err = errors.Wrap(err, "gateway: error getting user from token")
@@ -207,7 +207,7 @@ func (s *svc) WhoAmI(ctx context.Context, req *gateway.WhoAmIRequest) (*gateway.
 	return res, nil
 }
 
-func (s *svc) findAuthProvider(ctx context.Context, authType string) (provider.ProviderAPIClient, error) {
+func (s *Gateway) findAuthProvider(ctx context.Context, authType string) (provider.ProviderAPIClient, error) {
 	c, err := pool.GetAuthRegistryServiceClient(s.c.AuthRegistryEndpoint)
 	if err != nil {
 		err = errors.Wrap(err, "gateway: error getting auth registry client")
@@ -241,7 +241,7 @@ func (s *svc) findAuthProvider(ctx context.Context, authType string) (provider.P
 	return nil, errtypes.InternalError("gateway: error finding an auth provider for type: " + authType)
 }
 
-func (s *svc) expandScopes(ctx context.Context, scopeMap map[string]*authpb.Scope) (map[string]*authpb.Scope, error) {
+func (s *Gateway) expandScopes(ctx context.Context, scopeMap map[string]*authpb.Scope) (map[string]*authpb.Scope, error) {
 	log := appctx.GetLogger(ctx)
 	newMap := make(map[string]*authpb.Scope)
 
@@ -297,7 +297,7 @@ func (s *svc) expandScopes(ctx context.Context, scopeMap map[string]*authpb.Scop
 	return newMap, nil
 }
 
-func (s *svc) statAndAddResource(ctx context.Context, r *storageprovider.ResourceId, role authpb.Role, scopeMap map[string]*authpb.Scope) (map[string]*authpb.Scope, error) {
+func (s *Gateway) statAndAddResource(ctx context.Context, r *storageprovider.ResourceId, role authpb.Role, scopeMap map[string]*authpb.Scope) (map[string]*authpb.Scope, error) {
 	statReq := &storageprovider.StatRequest{
 		Ref: &storageprovider.Reference{ResourceId: r},
 	}

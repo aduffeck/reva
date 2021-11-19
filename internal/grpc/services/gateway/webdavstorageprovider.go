@@ -37,7 +37,7 @@ type webdavEndpoint struct {
 // It also dealt with webdav references for OCM shares. The code below is commented en bloc to keep the
 // old logic readable.
 /*
-func (s *svc) webdavRefStat(ctx context.Context, targetURL string, nameQueries ...string) (*provider.ResourceInfo, error) {
+func (s *Gateway) webdavRefStat(ctx context.Context, targetURL string, nameQueries ...string) (*provider.ResourceInfo, error) {
 	targetURL, err := appendNameQuery(targetURL, nameQueries...)
 	if err != nil {
 		return nil, err
@@ -64,7 +64,7 @@ func (s *svc) webdavRefStat(ctx context.Context, targetURL string, nameQueries .
 	return normalize(info.(*gowebdav.File)), nil
 }
 
-func (s *svc) webdavRefLs(ctx context.Context, targetURL string, nameQueries ...string) ([]*provider.ResourceInfo, error) {
+func (s *Gateway) webdavRefLs(ctx context.Context, targetURL string, nameQueries ...string) ([]*provider.ResourceInfo, error) {
 	targetURL, err := appendNameQuery(targetURL, nameQueries...)
 	if err != nil {
 		return nil, err
@@ -97,7 +97,7 @@ func (s *svc) webdavRefLs(ctx context.Context, targetURL string, nameQueries ...
 	return mds, nil
 }
 
-func (s *svc) webdavRefMkdir(ctx context.Context, targetURL string, nameQueries ...string) error {
+func (s *Gateway) webdavRefMkdir(ctx context.Context, targetURL string, nameQueries ...string) error {
 	targetURL, err := appendNameQuery(targetURL, nameQueries...)
 	if err != nil {
 		return err
@@ -122,7 +122,7 @@ func (s *svc) webdavRefMkdir(ctx context.Context, targetURL string, nameQueries 
 	return nil
 }
 
-func (s *svc) webdavRefMove(ctx context.Context, targetURL, src, destination string) error {
+func (s *Gateway) webdavRefMove(ctx context.Context, targetURL, src, destination string) error {
 	srcURL, err := appendNameQuery(targetURL, src)
 	if err != nil {
 		return err
@@ -155,7 +155,7 @@ func (s *svc) webdavRefMove(ctx context.Context, targetURL, src, destination str
 	return nil
 }
 
-func (s *svc) webdavRefDelete(ctx context.Context, targetURL string, nameQueries ...string) error {
+func (s *Gateway) webdavRefDelete(ctx context.Context, targetURL string, nameQueries ...string) error {
 	targetURL, err := appendNameQuery(targetURL, nameQueries...)
 	if err != nil {
 		return err
@@ -180,7 +180,7 @@ func (s *svc) webdavRefDelete(ctx context.Context, targetURL string, nameQueries
 	return nil
 }
 
-func (s *svc) webdavRefTransferEndpoint(ctx context.Context, targetURL string, nameQueries ...string) (string, *types.Opaque, error) {
+func (s *Gateway) webdavRefTransferEndpoint(ctx context.Context, targetURL string, nameQueries ...string) (string, *types.Opaque, error) {
 	targetURL, err := appendNameQuery(targetURL, nameQueries...)
 	if err != nil {
 		return "", nil, err
@@ -209,7 +209,7 @@ func (s *svc) webdavRefTransferEndpoint(ctx context.Context, targetURL string, n
 	}, nil
 }
 */
-func (s *svc) extractEndpointInfo(ctx context.Context, targetURL string) (*webdavEndpoint, error) {
+func (s *Gateway) extractEndpointInfo(ctx context.Context, targetURL string) (*webdavEndpoint, error) {
 	if targetURL == "" {
 		return nil, errtypes.BadRequest("gateway: ref target is an empty uri")
 	}
@@ -238,7 +238,7 @@ func (s *svc) extractEndpointInfo(ctx context.Context, targetURL string) (*webda
 // It also dealt with webdav references for OCM shares. The code below is commented en bloc to keep the
 // old logic readable.
 /*
-func (s *svc) getWebdavEndpoint(ctx context.Context, domain string) (string, error) {
+func (s *Gateway) getWebdavEndpoint(ctx context.Context, domain string) (string, error) {
 	meshProvider, err := s.GetInfoByDomain(ctx, &ocmprovider.GetInfoByDomainRequest{
 		Domain: domain,
 	})

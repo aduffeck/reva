@@ -28,7 +28,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-func (s *svc) CreatePublicShare(ctx context.Context, req *link.CreatePublicShareRequest) (*link.CreatePublicShareResponse, error) {
+func (s *Gateway) CreatePublicShare(ctx context.Context, req *link.CreatePublicShareRequest) (*link.CreatePublicShareResponse, error) {
 	log := appctx.GetLogger(ctx)
 	log.Info().Msg("create public share")
 
@@ -45,7 +45,7 @@ func (s *svc) CreatePublicShare(ctx context.Context, req *link.CreatePublicShare
 	return res, nil
 }
 
-func (s *svc) RemovePublicShare(ctx context.Context, req *link.RemovePublicShareRequest) (*link.RemovePublicShareResponse, error) {
+func (s *Gateway) RemovePublicShare(ctx context.Context, req *link.RemovePublicShareRequest) (*link.RemovePublicShareResponse, error) {
 	log := appctx.GetLogger(ctx)
 	log.Info().Msg("remove public share")
 
@@ -60,7 +60,7 @@ func (s *svc) RemovePublicShare(ctx context.Context, req *link.RemovePublicShare
 	return res, nil
 }
 
-func (s *svc) GetPublicShareByToken(ctx context.Context, req *link.GetPublicShareByTokenRequest) (*link.GetPublicShareByTokenResponse, error) {
+func (s *Gateway) GetPublicShareByToken(ctx context.Context, req *link.GetPublicShareByTokenRequest) (*link.GetPublicShareByTokenResponse, error) {
 	log := appctx.GetLogger(ctx)
 	log.Info().Msg("get public share by token")
 
@@ -77,7 +77,7 @@ func (s *svc) GetPublicShareByToken(ctx context.Context, req *link.GetPublicShar
 	return res, nil
 }
 
-func (s *svc) GetPublicShare(ctx context.Context, req *link.GetPublicShareRequest) (*link.GetPublicShareResponse, error) {
+func (s *Gateway) GetPublicShare(ctx context.Context, req *link.GetPublicShareRequest) (*link.GetPublicShareResponse, error) {
 	log := appctx.GetLogger(ctx)
 	log.Info().Msg("get public share")
 
@@ -94,7 +94,7 @@ func (s *svc) GetPublicShare(ctx context.Context, req *link.GetPublicShareReques
 	return pClient.GetPublicShare(ctx, req)
 }
 
-func (s *svc) ListPublicShares(ctx context.Context, req *link.ListPublicSharesRequest) (*link.ListPublicSharesResponse, error) {
+func (s *Gateway) ListPublicShares(ctx context.Context, req *link.ListPublicSharesRequest) (*link.ListPublicSharesResponse, error) {
 	log := appctx.GetLogger(ctx)
 	log.Info().Msg("listing public shares")
 
@@ -116,7 +116,7 @@ func (s *svc) ListPublicShares(ctx context.Context, req *link.ListPublicSharesRe
 	return res, nil
 }
 
-func (s *svc) UpdatePublicShare(ctx context.Context, req *link.UpdatePublicShareRequest) (*link.UpdatePublicShareResponse, error) {
+func (s *Gateway) UpdatePublicShare(ctx context.Context, req *link.UpdatePublicShareRequest) (*link.UpdatePublicShareResponse, error) {
 	log := appctx.GetLogger(ctx)
 	log.Info().Msg("update public share")
 

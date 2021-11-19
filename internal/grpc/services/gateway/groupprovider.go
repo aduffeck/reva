@@ -27,7 +27,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-func (s *svc) GetGroup(ctx context.Context, req *group.GetGroupRequest) (*group.GetGroupResponse, error) {
+func (s *Gateway) GetGroup(ctx context.Context, req *group.GetGroupRequest) (*group.GetGroupResponse, error) {
 	c, err := pool.GetGroupProviderServiceClient(s.c.GroupProviderEndpoint)
 	if err != nil {
 		return &group.GetGroupResponse{
@@ -43,7 +43,7 @@ func (s *svc) GetGroup(ctx context.Context, req *group.GetGroupRequest) (*group.
 	return res, nil
 }
 
-func (s *svc) GetGroupByClaim(ctx context.Context, req *group.GetGroupByClaimRequest) (*group.GetGroupByClaimResponse, error) {
+func (s *Gateway) GetGroupByClaim(ctx context.Context, req *group.GetGroupByClaimRequest) (*group.GetGroupByClaimResponse, error) {
 	c, err := pool.GetGroupProviderServiceClient(s.c.GroupProviderEndpoint)
 	if err != nil {
 		return &group.GetGroupByClaimResponse{
@@ -59,7 +59,7 @@ func (s *svc) GetGroupByClaim(ctx context.Context, req *group.GetGroupByClaimReq
 	return res, nil
 }
 
-func (s *svc) FindGroups(ctx context.Context, req *group.FindGroupsRequest) (*group.FindGroupsResponse, error) {
+func (s *Gateway) FindGroups(ctx context.Context, req *group.FindGroupsRequest) (*group.FindGroupsResponse, error) {
 	c, err := pool.GetGroupProviderServiceClient(s.c.GroupProviderEndpoint)
 	if err != nil {
 		return &group.FindGroupsResponse{
@@ -75,7 +75,7 @@ func (s *svc) FindGroups(ctx context.Context, req *group.FindGroupsRequest) (*gr
 	return res, nil
 }
 
-func (s *svc) GetMembers(ctx context.Context, req *group.GetMembersRequest) (*group.GetMembersResponse, error) {
+func (s *Gateway) GetMembers(ctx context.Context, req *group.GetMembersRequest) (*group.GetMembersResponse, error) {
 	c, err := pool.GetGroupProviderServiceClient(s.c.GroupProviderEndpoint)
 	if err != nil {
 		return &group.GetMembersResponse{
@@ -91,7 +91,7 @@ func (s *svc) GetMembers(ctx context.Context, req *group.GetMembersRequest) (*gr
 	return res, nil
 }
 
-func (s *svc) HasMember(ctx context.Context, req *group.HasMemberRequest) (*group.HasMemberResponse, error) {
+func (s *Gateway) HasMember(ctx context.Context, req *group.HasMemberRequest) (*group.HasMemberResponse, error) {
 	c, err := pool.GetGroupProviderServiceClient(s.c.GroupProviderEndpoint)
 	if err != nil {
 		return &group.HasMemberResponse{

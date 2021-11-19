@@ -29,7 +29,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-func (s *svc) ListAuthProviders(ctx context.Context, req *registry.ListAuthProvidersRequest) (*gateway.ListAuthProvidersResponse, error) {
+func (s *Gateway) ListAuthProviders(ctx context.Context, req *registry.ListAuthProvidersRequest) (*gateway.ListAuthProvidersResponse, error) {
 	c, err := pool.GetAuthRegistryServiceClient(s.c.AuthRegistryEndpoint)
 	if err != nil {
 		err = errors.Wrap(err, "gateway: error getting auth registry client")

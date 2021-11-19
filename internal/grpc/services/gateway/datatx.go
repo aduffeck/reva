@@ -27,7 +27,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-func (s *svc) CreateTransfer(ctx context.Context, req *datatx.CreateTransferRequest) (*datatx.CreateTransferResponse, error) {
+func (s *Gateway) CreateTransfer(ctx context.Context, req *datatx.CreateTransferRequest) (*datatx.CreateTransferResponse, error) {
 	c, err := pool.GetDataTxClient(s.c.DataTxEndpoint)
 	if err != nil {
 		err = errors.Wrap(err, "gateway: error calling GetOCMShareProviderClient")
@@ -44,7 +44,7 @@ func (s *svc) CreateTransfer(ctx context.Context, req *datatx.CreateTransferRequ
 	return res, nil
 }
 
-func (s *svc) GetTransferStatus(ctx context.Context, req *datatx.GetTransferStatusRequest) (*datatx.GetTransferStatusResponse, error) {
+func (s *Gateway) GetTransferStatus(ctx context.Context, req *datatx.GetTransferStatusRequest) (*datatx.GetTransferStatusResponse, error) {
 	c, err := pool.GetDataTxClient(s.c.DataTxEndpoint)
 	if err != nil {
 		err = errors.Wrap(err, "gateway: error calling GetOCMShareProviderClient")
@@ -61,7 +61,7 @@ func (s *svc) GetTransferStatus(ctx context.Context, req *datatx.GetTransferStat
 	return res, nil
 }
 
-func (s *svc) CancelTransfer(ctx context.Context, req *datatx.CancelTransferRequest) (*datatx.CancelTransferResponse, error) {
+func (s *Gateway) CancelTransfer(ctx context.Context, req *datatx.CancelTransferRequest) (*datatx.CancelTransferResponse, error) {
 	c, err := pool.GetDataTxClient(s.c.DataTxEndpoint)
 	if err != nil {
 		err = errors.Wrap(err, "gateway: error calling GetOCMShareProviderClient")

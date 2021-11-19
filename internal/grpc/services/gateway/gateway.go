@@ -27,8 +27,11 @@ import (
 	gateway "github.com/cs3org/go-cs3apis/cs3/gateway/v1beta1"
 
 	"github.com/ReneKroon/ttlcache/v2"
+	storage "github.com/cs3org/go-cs3apis/cs3/storage/provider/v1beta1"
+	storageregistry "github.com/cs3org/go-cs3apis/cs3/storage/registry/v1beta1"
 	"github.com/cs3org/reva/pkg/errtypes"
 	"github.com/cs3org/reva/pkg/rgrpc"
+	"github.com/cs3org/reva/pkg/rgrpc/todo/pool"
 	"github.com/cs3org/reva/pkg/sharedconf"
 	"github.com/cs3org/reva/pkg/token"
 	"github.com/cs3org/reva/pkg/token/manager/registry"
@@ -37,8 +40,10 @@ import (
 	"google.golang.org/grpc"
 )
 
+//go:generate mockery -name PoolManager|StorageRegistryAPIClient|StorageProviderAPIClient
+
 func init() {
-	rgrpc.Register("gateway", New)
+	rgrpc.Register("gateway", NewDefault)
 }
 
 type config struct {
@@ -117,18 +122,30 @@ func (c *config) init() {
 	}
 }
 
-type svc struct {
+type StorageRegistryAPIClient interface {
+	storageregistry.RegistryAPIClient
+}
+type StorageProviderAPIClient interface {
+	storage.ProviderAPIClient
+}
+type PoolManager interface {
+	GetStorageRegistryClient(endpoint string) (storageregistry.RegistryAPIClient, error)
+	GetStorageProviderServiceClient(endpoint string) (storage.ProviderAPIClient, error)
+}
+
+type Gateway struct {
 	c               *config
 	dataGatewayURL  url.URL
 	tokenmgr        token.Manager
 	etagCache       *ttlcache.Cache `mapstructure:"etag_cache"`
 	createHomeCache *ttlcache.Cache `mapstructure:"create_home_cache"`
+	poolManager     PoolManager
 }
 
 // New creates a new gateway svc that acts as a proxy for any grpc operation.
 // The gateway is responsible for high-level controls: rate-limiting, coordination between svcs
 // like sharing and storage acls, asynchronous transactions, ...
-func New(m map[string]interface{}, ss *grpc.Server) (rgrpc.Service, error) {
+func New(m map[string]interface{}, poolManager PoolManager, _ *grpc.Server) (rgrpc.Service, error) {
 	c, err := parseConfig(m)
 	if err != nil {
 		return nil, err
@@ -155,27 +172,33 @@ func New(m map[string]interface{}, ss *grpc.Server) (rgrpc.Service, error) {
 	_ = createHomeCache.SetTTL(time.Duration(c.CreateHomeCacheTTL) * time.Second)
 	createHomeCache.SkipTTLExtensionOnHit(true)
 
-	s := &svc{
+	s := &Gateway{
 		c:               c,
 		dataGatewayURL:  *u,
 		tokenmgr:        tokenManager,
 		etagCache:       etagCache,
 		createHomeCache: createHomeCache,
+		poolManager:     poolManager,
 	}
 
 	return s, nil
 }
 
-func (s *svc) Register(ss *grpc.Server) {
+// NewDefault creates a new gateway svc with default dependencies
+func NewDefault(m map[string]interface{}, s *grpc.Server) (rgrpc.Service, error) {
+	return New(m, pool.NewManager(), s)
+}
+
+func (s *Gateway) Register(ss *grpc.Server) {
 	gateway.RegisterGatewayAPIServer(ss, s)
 }
 
-func (s *svc) Close() error {
+func (s *Gateway) Close() error {
 	s.etagCache.Close()
 	return nil
 }
 
-func (s *svc) UnprotectedEndpoints() []string {
+func (s *Gateway) UnprotectedEndpoints() []string {
 	return []string{"/cs3.gateway.v1beta1.GatewayAPI"}
 }
 

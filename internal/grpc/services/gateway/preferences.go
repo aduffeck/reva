@@ -27,7 +27,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-func (s *svc) SetKey(ctx context.Context, req *preferences.SetKeyRequest) (*preferences.SetKeyResponse, error) {
+func (s *Gateway) SetKey(ctx context.Context, req *preferences.SetKeyRequest) (*preferences.SetKeyResponse, error) {
 	c, err := pool.GetPreferencesClient(s.c.PreferencesEndpoint)
 	if err != nil {
 		err = errors.Wrap(err, "gateway: error calling GetPreferencesClient")
@@ -44,7 +44,7 @@ func (s *svc) SetKey(ctx context.Context, req *preferences.SetKeyRequest) (*pref
 	return res, nil
 }
 
-func (s *svc) GetKey(ctx context.Context, req *preferences.GetKeyRequest) (*preferences.GetKeyResponse, error) {
+func (s *Gateway) GetKey(ctx context.Context, req *preferences.GetKeyRequest) (*preferences.GetKeyResponse, error) {
 	c, err := pool.GetPreferencesClient(s.c.PreferencesEndpoint)
 	if err != nil {
 		err = errors.Wrap(err, "gateway: error calling GetPreferencesClient")
