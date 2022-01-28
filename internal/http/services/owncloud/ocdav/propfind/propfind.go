@@ -401,10 +401,7 @@ func (p *Handler) getResourceInfos(ctx context.Context, w http.ResponseWriter, r
 		spaceInfos = append(spaceInfos, info)
 		if rootInfo == nil && requestPath == info.Path || spacesPropfind && requestPath == path.Join("/", info.Path) {
 			rootInfo = info
-		}
-
-		// Check if the space is a child of the requested path
-		if requestPath != spacePath && strings.HasPrefix(spacePath, requestPath) {
+		} else if requestPath != spacePath && strings.HasPrefix(spacePath, requestPath) { // Check if the space is a child of the requested path
 			// aggregate child metadata
 			aggregatedChildSize += info.Size
 			if mostRecentChildInfo == nil {
