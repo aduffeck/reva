@@ -1,0 +1,61 @@
+// Copyright 2018-2022 CERN
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// In applying this license, CERN does not waive the privileges and immunities
+// granted to it by virtue of its status as an Intergovernmental Organization
+// or submit itself to any jurisdiction.
+
+package net_test
+
+import (
+	"time"
+
+	"github.com/cs3org/reva/internal/http/services/owncloud/ocdav/net"
+
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+	. "github.com/onsi/gomega/gmeasure"
+)
+
+var _ = Describe("Net", func() {
+	Describe("EncodePath", func() {
+		It("encodes paths", func() {
+			Expect(net.EncodePath("foo")).To(Equal("foo"))
+			Expect(net.EncodePath("/some/path/Folder %^*(#1)")).To(Equal("/some/path/Folder%20%25%5e%2a(%231)"))
+		})
+
+		/*
+			The encodePath method as it is implemented currently is terribly inefficient.
+			As soon as there are a few special characters which need to be escaped the allocation count rises and the time spent too.
+			Adding more special characters increases the allocations and the time spent can rise up to a few milliseconds.
+			Granted this is not a lot on it's own but when a user has tens or hundreds of paths which need to be escaped and contain a few special characters
+			then this method alone will cost a huge amount of time.
+		*/
+		It("is reasonably fast", func() {
+			experiment := NewExperiment("Encoding paths")
+			AddReportEntry(experiment.Name, experiment)
+
+			experiment.Sample(func(idx int) {
+				experiment.MeasureDuration("encoding", func() {
+					_ = net.EncodePath("/some/path/Folder %^*(#1)")
+				})
+			}, SamplingConfig{Duration: time.Second})
+
+			encodingStats := experiment.GetStats("encoding")
+			medianDuration := encodingStats.DurationFor(StatMedian)
+
+			Expect(medianDuration).To(BeNumerically("~", 3000*time.Nanosecond, 1000*time.Millisecond))
+		})
+	})
+})
