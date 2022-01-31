@@ -59,6 +59,26 @@ var _ = Describe("Propfind", func() {
 
 			return res, string(buf), nil
 		}
+
+		mockStat = func(ref *sprovider.Reference, info *sprovider.ResourceInfo) {
+			client.On("Stat", mock.Anything, mock.MatchedBy(func(req *sprovider.StatRequest) bool {
+				return (ref.ResourceId.GetOpaqueId() == "" || req.Ref.ResourceId.GetOpaqueId() == ref.ResourceId.GetOpaqueId()) &&
+					(ref.Path == "" || req.Ref.Path == ref.Path)
+			})).Return(&sprovider.StatResponse{
+				Status: status.NewOK(ctx),
+				Info:   info,
+			}, nil)
+		}
+		mockListContainer = func(ref *sprovider.Reference, infos []*sprovider.ResourceInfo) {
+			client.On("ListContainer", mock.Anything, mock.MatchedBy(func(req *sprovider.ListContainerRequest) bool {
+				match := (ref.ResourceId.GetOpaqueId() == "" || req.Ref.ResourceId.GetOpaqueId() == ref.ResourceId.GetOpaqueId()) &&
+					(ref.Path == "" || req.Ref.Path == ref.Path)
+				return match
+			})).Return(&sprovider.ListContainerResponse{
+				Status: status.NewOK(ctx),
+				Infos:  infos,
+			}, nil)
+		}
 	)
 
 	JustBeforeEach(func() {
@@ -102,21 +122,14 @@ var _ = Describe("Propfind", func() {
 				StorageSpaces: []*sprovider.StorageSpace{},
 			}, nil)
 
-			client.On("Stat", mock.Anything, mock.MatchedBy(func(req *sprovider.StatRequest) bool {
-				return req.Ref.ResourceId.GetOpaqueId() == "foospaceroot" && req.Ref.Path == "."
-			})).Return(&sprovider.StatResponse{
-				Status: status.NewOK(ctx),
-				Info: &sprovider.ResourceInfo{
+			mockStat(&sprovider.Reference{ResourceId: &sprovider.ResourceId{OpaqueId: "foospaceroot"}, Path: "."},
+				&sprovider.ResourceInfo{
 					Type: sprovider.ResourceType_RESOURCE_TYPE_CONTAINER,
 					Path: ".",
 					Size: uint64(101),
-				},
-			}, nil)
-			client.On("ListContainer", mock.Anything, mock.MatchedBy(func(req *sprovider.ListContainerRequest) bool {
-				return req.Ref.ResourceId.GetOpaqueId() == "foospaceroot" && req.Ref.Path == "."
-			})).Return(&sprovider.ListContainerResponse{
-				Status: status.NewOK(ctx),
-				Infos: []*sprovider.ResourceInfo{
+				})
+			mockListContainer(&sprovider.Reference{ResourceId: &sprovider.ResourceId{OpaqueId: "foospaceroot"}, Path: "."},
+				[]*sprovider.ResourceInfo{
 					{
 						Type: sprovider.ResourceType_RESOURCE_TYPE_FILE,
 						Path: "bar",
@@ -127,19 +140,13 @@ var _ = Describe("Propfind", func() {
 						Path: "baz",
 						Size: 1,
 					},
-				},
-			}, nil)
-
-			client.On("Stat", mock.Anything, mock.MatchedBy(func(req *sprovider.StatRequest) bool {
-				return req.Ref.ResourceId.GetOpaqueId() == "foospaceroot" && req.Ref.Path == "./bar"
-			})).Return(&sprovider.StatResponse{
-				Status: status.NewOK(ctx),
-				Info: &sprovider.ResourceInfo{
+				})
+			mockStat(&sprovider.Reference{ResourceId: &sprovider.ResourceId{OpaqueId: "foospaceroot"}, Path: "./bar"},
+				&sprovider.ResourceInfo{
 					Type: sprovider.ResourceType_RESOURCE_TYPE_FILE,
 					Path: "./bar",
 					Size: uint64(100),
-				},
-			}, nil)
+				})
 
 			client.On("ListPublicShares", mock.Anything, mock.Anything).Return(&link.ListPublicSharesResponse{
 				Status: status.NewOK(ctx),
@@ -194,6 +201,33 @@ var _ = Describe("Propfind", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(res.Responses)).To(Equal(1))
 			Expect(string(res.Responses[0].Propstat[0].Prop[0].InnerXML)).To(ContainSubstring("<d:getcontentlength>100</d:getcontentlength>"))
+		})
+
+		It("stats a directory", func() {
+			mockStat(&sprovider.Reference{Path: "./baz"}, &sprovider.ResourceInfo{
+				Type: sprovider.ResourceType_RESOURCE_TYPE_CONTAINER,
+				Size: 50,
+			})
+			mockListContainer(&sprovider.Reference{Path: "./baz"}, []*sprovider.ResourceInfo{
+				{
+					Type: sprovider.ResourceType_RESOURCE_TYPE_CONTAINER,
+					Size: 50,
+				},
+			})
+
+			rr := httptest.NewRecorder()
+			req, err := http.NewRequest("GET", "/baz", strings.NewReader(""))
+			req = req.WithContext(ctx)
+			Expect(err).ToNot(HaveOccurred())
+
+			handler.HandleSpacesPropfind(rr, req, "foospace")
+			Expect(rr.Code).To(Equal(http.StatusMultiStatus))
+
+			res, _, err := readResponse(rr.Result().Body)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(res.Responses)).To(Equal(2))
+			Expect(string(res.Responses[0].Propstat[0].Prop[0].InnerXML)).To(ContainSubstring("<oc:size>50</oc:size>"))
+			Expect(string(res.Responses[1].Propstat[0].Prop[0].InnerXML)).To(ContainSubstring("<oc:size>50</oc:size>"))
 		})
 	})
 })
