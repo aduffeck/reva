@@ -106,6 +106,32 @@ var _ = Describe("Propfind", func() {
 			Root: &sprovider.ResourceId{OpaqueId: "fooquxspaceroot"},
 			Name: "fooquxspace",
 		}
+		fooFileShareSpace = &sprovider.StorageSpace{
+			Opaque: &typesv1beta1.Opaque{
+				Map: map[string]*typesv1beta1.OpaqueEntry{
+					"path": {
+						Decoder: "plain",
+						Value:   []byte("/foo/Shares/sharedFile"),
+					},
+				},
+			},
+			Id:   &sprovider.StorageSpaceId{OpaqueId: "fooFileShareSpace"},
+			Root: &sprovider.ResourceId{OpaqueId: "sharedfile"},
+			Name: "fooFileShareSpace",
+		}
+		fooFileShare2Space = &sprovider.StorageSpace{
+			Opaque: &typesv1beta1.Opaque{
+				Map: map[string]*typesv1beta1.OpaqueEntry{
+					"path": {
+						Decoder: "plain",
+						Value:   []byte("/foo/Shares/sharedFile2"),
+					},
+				},
+			},
+			Id:   &sprovider.StorageSpaceId{OpaqueId: "fooFileShareSpace2"},
+			Root: &sprovider.ResourceId{OpaqueId: "sharedfile2"},
+			Name: "fooFileShareSpace2",
+		}
 	)
 
 	JustBeforeEach(func() {
@@ -155,6 +181,23 @@ var _ = Describe("Propfind", func() {
 					Size: 1000,
 				},
 			})
+
+		mockStat(&sprovider.Reference{ResourceId: &sprovider.ResourceId{OpaqueId: "sharedfile"}, Path: "."},
+			&sprovider.ResourceInfo{
+				Type:  sprovider.ResourceType_RESOURCE_TYPE_FILE,
+				Path:  ".",
+				Size:  uint64(2000),
+				Mtime: &typesv1beta1.Timestamp{Seconds: 1},
+			})
+
+		mockStat(&sprovider.Reference{ResourceId: &sprovider.ResourceId{OpaqueId: "sharedfile2"}, Path: "."},
+			&sprovider.ResourceInfo{
+				Type:  sprovider.ResourceType_RESOURCE_TYPE_FILE,
+				Path:  ".",
+				Size:  uint64(2500),
+				Mtime: &typesv1beta1.Timestamp{Seconds: 2},
+			})
+
 		client.On("ListPublicShares", mock.Anything, mock.Anything).Return(&link.ListPublicSharesResponse{
 			Status: status.NewOK(ctx),
 		}, nil)
@@ -238,7 +281,113 @@ var _ = Describe("Propfind", func() {
 			})
 		})
 
-		Context("with a nested space", func() {
+		Context("with one nested file space", func() {
+			JustBeforeEach(func() {
+				client.On("ListStorageSpaces", mock.Anything, mock.MatchedBy(func(req *sprovider.ListStorageSpacesRequest) bool {
+					return string(req.Opaque.Map["path"].Value) == "/foo" || string(req.Opaque.Map["path"].Value) == "/"
+				})).Return(&sprovider.ListStorageSpacesResponse{
+					Status:        status.NewOK(ctx),
+					StorageSpaces: []*sprovider.StorageSpace{foospace, fooFileShareSpace},
+				}, nil)
+				client.On("ListStorageSpaces", mock.Anything, mock.MatchedBy(func(req *sprovider.ListStorageSpacesRequest) bool {
+					return strings.HasPrefix(string(req.Opaque.Map["path"].Value), "/foo/Shares")
+				})).Return(&sprovider.ListStorageSpacesResponse{
+					Status:        status.NewOK(ctx),
+					StorageSpaces: []*sprovider.StorageSpace{fooFileShareSpace},
+				}, nil)
+				client.On("ListStorageSpaces", mock.Anything, mock.Anything).Return(&sprovider.ListStorageSpacesResponse{
+					Status:        status.NewOK(ctx),
+					StorageSpaces: []*sprovider.StorageSpace{},
+				}, nil)
+			})
+
+			It("stats the parent", func() {
+				rr := httptest.NewRecorder()
+				req, err := http.NewRequest("GET", "/foo", strings.NewReader(""))
+				req = req.WithContext(ctx)
+				Expect(err).ToNot(HaveOccurred())
+
+				handler.HandlePathPropfind(rr, req, "/")
+				Expect(rr.Code).To(Equal(http.StatusMultiStatus))
+
+				res, _, err := readResponse(rr.Result().Body)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(len(res.Responses)).To(Equal(4))
+
+				parent := res.Responses[0]
+				Expect(parent.Href).To(Equal("http:/127.0.0.1:3000/foo/"))
+				Expect(string(parent.Propstat[0].Prop[0].InnerXML)).To(ContainSubstring("<oc:size>2101</oc:size>"))
+
+				sf := res.Responses[3]
+				Expect(sf.Href).To(Equal("http:/127.0.0.1:3000/foo/Shares/"))
+				Expect(string(sf.Propstat[0].Prop[0].InnerXML)).To(ContainSubstring("<oc:size>2000</oc:size>"))
+			})
+
+			It("stats the embedded space", func() {
+				rr := httptest.NewRecorder()
+				req, err := http.NewRequest("GET", "/foo/Shares/sharedFile", strings.NewReader(""))
+				req = req.WithContext(ctx)
+				Expect(err).ToNot(HaveOccurred())
+
+				handler.HandlePathPropfind(rr, req, "/")
+				Expect(rr.Code).To(Equal(http.StatusMultiStatus))
+
+				res, _, err := readResponse(rr.Result().Body)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(len(res.Responses)).To(Equal(1))
+
+				sf := res.Responses[0]
+				Expect(sf.Href).To(Equal("http:/127.0.0.1:3000/foo/Shares/sharedFile"))
+				Expect(string(sf.Propstat[0].Prop[0].InnerXML)).To(ContainSubstring("<d:getcontentlength>2000</d:getcontentlength>"))
+				Expect(string(sf.Propstat[0].Prop[0].InnerXML)).To(ContainSubstring("<d:getlastmodified>Thu, 01 Jan 1970 00:00:01 GMT</d:getlastmodified>"))
+			})
+		})
+
+		Context("with two nested file spaces", func() {
+			JustBeforeEach(func() {
+				client.On("ListStorageSpaces", mock.Anything, mock.MatchedBy(func(req *sprovider.ListStorageSpacesRequest) bool {
+					return string(req.Opaque.Map["path"].Value) == "/foo" || string(req.Opaque.Map["path"].Value) == "/"
+				})).Return(&sprovider.ListStorageSpacesResponse{
+					Status:        status.NewOK(ctx),
+					StorageSpaces: []*sprovider.StorageSpace{foospace, fooFileShareSpace, fooFileShare2Space},
+				}, nil)
+				client.On("ListStorageSpaces", mock.Anything, mock.MatchedBy(func(req *sprovider.ListStorageSpacesRequest) bool {
+					return strings.HasPrefix(string(req.Opaque.Map["path"].Value), "/foo/Shares")
+				})).Return(&sprovider.ListStorageSpacesResponse{
+					Status:        status.NewOK(ctx),
+					StorageSpaces: []*sprovider.StorageSpace{fooFileShareSpace, fooFileShare2Space},
+				}, nil)
+				client.On("ListStorageSpaces", mock.Anything, mock.Anything).Return(&sprovider.ListStorageSpacesResponse{
+					Status:        status.NewOK(ctx),
+					StorageSpaces: []*sprovider.StorageSpace{},
+				}, nil)
+			})
+
+			It("stats the parent", func() {
+				rr := httptest.NewRecorder()
+				req, err := http.NewRequest("GET", "/foo", strings.NewReader(""))
+				req = req.WithContext(ctx)
+				Expect(err).ToNot(HaveOccurred())
+
+				handler.HandlePathPropfind(rr, req, "/")
+				Expect(rr.Code).To(Equal(http.StatusMultiStatus))
+
+				res, _, err := readResponse(rr.Result().Body)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(len(res.Responses)).To(Equal(4))
+
+				parent := res.Responses[0]
+				Expect(parent.Href).To(Equal("http:/127.0.0.1:3000/foo/"))
+				Expect(string(parent.Propstat[0].Prop[0].InnerXML)).To(ContainSubstring("<oc:size>4601</oc:size>"))
+
+				shares := res.Responses[3]
+				Expect(shares.Href).To(Equal("http:/127.0.0.1:3000/foo/Shares/"))
+				Expect(string(shares.Propstat[0].Prop[0].InnerXML)).To(ContainSubstring("<oc:size>4500</oc:size>"))
+				Expect(string(shares.Propstat[0].Prop[0].InnerXML)).To(ContainSubstring("<d:getlastmodified>Thu, 01 Jan 1970 00:00:02 GMT</d:getlastmodified>"))
+			})
+		})
+
+		Context("with a nested directory space", func() {
 			JustBeforeEach(func() {
 				client.On("ListStorageSpaces", mock.Anything, mock.MatchedBy(func(req *sprovider.ListStorageSpacesRequest) bool {
 					return string(req.Opaque.Map["path"].Value) == "/foo" || string(req.Opaque.Map["path"].Value) == "/"
