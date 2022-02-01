@@ -170,7 +170,8 @@ var _ = Describe("Propfind", func() {
 		Context("with just one space", func() {
 			JustBeforeEach(func() {
 				client.On("ListStorageSpaces", mock.Anything, mock.MatchedBy(func(req *sprovider.ListStorageSpacesRequest) bool {
-					return string(req.Opaque.Map["path"].Value) == "/foo" || string(req.Opaque.Map["path"].Value) == "/"
+					p := string(req.Opaque.Map["path"].Value)
+					return p == "/" || strings.HasPrefix(p, "/foo")
 				})).Return(&sprovider.ListStorageSpacesResponse{
 					Status:        status.NewOK(ctx),
 					StorageSpaces: []*sprovider.StorageSpace{foospace},
@@ -216,6 +217,24 @@ var _ = Describe("Propfind", func() {
 				baz := res.Responses[2]
 				Expect(baz.Href).To(Equal("http:/127.0.0.1:3000/foo/baz"))
 				Expect(string(baz.Propstat[0].Prop[0].InnerXML)).To(ContainSubstring("<d:getcontentlength>1</d:getcontentlength>"))
+			})
+
+			It("stats a file", func() {
+				rr := httptest.NewRecorder()
+				req, err := http.NewRequest("GET", "/foo/bar", strings.NewReader(""))
+				req = req.WithContext(ctx)
+				Expect(err).ToNot(HaveOccurred())
+
+				handler.HandlePathPropfind(rr, req, "/")
+				Expect(rr.Code).To(Equal(http.StatusMultiStatus))
+
+				res, _, err := readResponse(rr.Result().Body)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(len(res.Responses)).To(Equal(1))
+
+				bar := res.Responses[0]
+				Expect(bar.Href).To(Equal("http:/127.0.0.1:3000/foo/bar"))
+				Expect(string(bar.Propstat[0].Prop[0].InnerXML)).To(ContainSubstring("<d:getcontentlength>100</d:getcontentlength>"))
 			})
 		})
 

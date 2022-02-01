@@ -399,7 +399,7 @@ func (p *Handler) getResourceInfos(ctx context.Context, w http.ResponseWriter, r
 
 		spaceMap[info] = spaceRef
 		spaceInfos = append(spaceInfos, info)
-		if rootInfo == nil && requestPath == info.Path || spacesPropfind && requestPath == path.Join("/", info.Path) {
+		if rootInfo == nil && (requestPath == info.Path || (spacesPropfind && requestPath == path.Join("/", info.Path))) {
 			rootInfo = info
 		} else if requestPath != spacePath && strings.HasPrefix(spacePath, requestPath) { // Check if the space is a child of the requested path
 			// aggregate child metadata
@@ -446,8 +446,11 @@ func (p *Handler) getResourceInfos(ctx context.Context, w http.ResponseWriter, r
 	for _, spaceInfo := range spaceInfos {
 		switch {
 		case !spacesPropfind && spaceInfo.Type != provider.ResourceType_RESOURCE_TYPE_CONTAINER && depth != "infinity":
-			// The propfind is requested for a file that exists
+			if spaceInfo == rootInfo {
+				continue // already accounted for
+			}
 
+			// The propfind is requested for a file that exists
 			childPath := strings.TrimPrefix(spaceInfo.Path, requestPath)
 			childName, tail := router.ShiftPath(childPath)
 			if tail != "/" {
