@@ -157,6 +157,7 @@ var _ = Describe("Propfind", func() {
 
 		mockStat(&sprovider.Reference{ResourceId: &sprovider.ResourceId{OpaqueId: "foospaceroot"}, Path: "."},
 			&sprovider.ResourceInfo{
+				Id:   &sprovider.ResourceId{OpaqueId: "foospaceroot", StorageId: "foospaceroot"},
 				Type: sprovider.ResourceType_RESOURCE_TYPE_CONTAINER,
 				Path: ".",
 				Size: uint64(101),
@@ -190,6 +191,7 @@ var _ = Describe("Propfind", func() {
 		mockListContainer(&sprovider.Reference{ResourceId: &sprovider.ResourceId{OpaqueId: "fooquxspaceroot"}, Path: "."},
 			[]*sprovider.ResourceInfo{
 				{
+					Id:   &sprovider.ResourceId{OpaqueId: "fooquxspaceroot", StorageId: "fooquxspaceroot"},
 					Type: sprovider.ResourceType_RESOURCE_TYPE_FILE,
 					Path: "quux",
 					Size: 1000,
@@ -198,6 +200,7 @@ var _ = Describe("Propfind", func() {
 
 		mockStat(&sprovider.Reference{ResourceId: &sprovider.ResourceId{OpaqueId: "sharedfile"}, Path: "."},
 			&sprovider.ResourceInfo{
+				Id:    &sprovider.ResourceId{OpaqueId: "sharedfile", StorageId: "sharedfile"},
 				Type:  sprovider.ResourceType_RESOURCE_TYPE_FILE,
 				Path:  ".",
 				Size:  uint64(2000),
@@ -207,6 +210,7 @@ var _ = Describe("Propfind", func() {
 
 		mockStat(&sprovider.Reference{ResourceId: &sprovider.ResourceId{OpaqueId: "sharedfile2"}, Path: "."},
 			&sprovider.ResourceInfo{
+				Id:    &sprovider.ResourceId{OpaqueId: "sharedfile2", StorageId: "sharedfile2"},
 				Type:  sprovider.ResourceType_RESOURCE_TYPE_FILE,
 				Path:  ".",
 				Size:  uint64(2500),
@@ -215,11 +219,21 @@ var _ = Describe("Propfind", func() {
 			})
 		mockStat(&sprovider.Reference{ResourceId: &sprovider.ResourceId{OpaqueId: "shareddir"}, Path: "."},
 			&sprovider.ResourceInfo{
+				Id:    &sprovider.ResourceId{OpaqueId: "shareddir", StorageId: "shareddir"},
 				Type:  sprovider.ResourceType_RESOURCE_TYPE_CONTAINER,
 				Path:  ".",
 				Size:  uint64(1500),
 				Mtime: &typesv1beta1.Timestamp{Seconds: 3},
 				Etag:  "3",
+			})
+		mockListContainer(&sprovider.Reference{ResourceId: &sprovider.ResourceId{OpaqueId: "shareddir"}, Path: "."},
+			[]*sprovider.ResourceInfo{
+				{
+					Id:   &sprovider.ResourceId{OpaqueId: "shareddir", StorageId: "shareddir"},
+					Type: sprovider.ResourceType_RESOURCE_TYPE_FILE,
+					Path: "something",
+					Size: 1500,
+				},
 			})
 
 		client.On("ListPublicShares", mock.Anything, mock.Anything).Return(&link.ListPublicSharesResponse{
@@ -327,8 +341,8 @@ var _ = Describe("Propfind", func() {
 			It("stats the parent", func() {
 				rr := httptest.NewRecorder()
 				req, err := http.NewRequest("GET", "/foo", strings.NewReader(""))
-				req = req.WithContext(ctx)
 				Expect(err).ToNot(HaveOccurred())
+				req = req.WithContext(ctx)
 
 				handler.HandlePathPropfind(rr, req, "/")
 				Expect(rr.Code).To(Equal(http.StatusMultiStatus))
@@ -349,8 +363,8 @@ var _ = Describe("Propfind", func() {
 			It("stats the embedded space", func() {
 				rr := httptest.NewRecorder()
 				req, err := http.NewRequest("GET", "/foo/Shares/sharedFile", strings.NewReader(""))
-				req = req.WithContext(ctx)
 				Expect(err).ToNot(HaveOccurred())
+				req = req.WithContext(ctx)
 
 				handler.HandlePathPropfind(rr, req, "/")
 				Expect(rr.Code).To(Equal(http.StatusMultiStatus))
@@ -393,8 +407,8 @@ var _ = Describe("Propfind", func() {
 			It("stats the parent", func() {
 				rr := httptest.NewRecorder()
 				req, err := http.NewRequest("GET", "/foo", strings.NewReader(""))
-				req = req.WithContext(ctx)
 				Expect(err).ToNot(HaveOccurred())
+				req = req.WithContext(ctx)
 
 				handler.HandlePathPropfind(rr, req, "/")
 				Expect(rr.Code).To(Equal(http.StatusMultiStatus))
@@ -417,8 +431,8 @@ var _ = Describe("Propfind", func() {
 			It("stats the embedded space", func() {
 				rr := httptest.NewRecorder()
 				req, err := http.NewRequest("GET", "/foo/Shares/sharedFile", strings.NewReader(""))
-				req = req.WithContext(ctx)
 				Expect(err).ToNot(HaveOccurred())
+				req = req.WithContext(ctx)
 
 				handler.HandlePathPropfind(rr, req, "/")
 				Expect(rr.Code).To(Equal(http.StatusMultiStatus))
@@ -430,6 +444,35 @@ var _ = Describe("Propfind", func() {
 				sf := res.Responses[0]
 				Expect(sf.Href).To(Equal("http:/127.0.0.1:3000/foo/Shares/sharedFile"))
 				Expect(string(sf.Propstat[0].Prop[0].InnerXML)).To(ContainSubstring("<d:getcontentlength>2000</d:getcontentlength>"))
+			})
+
+			It("includes all the things™ when depth is inifinity", func() {
+				rr := httptest.NewRecorder()
+				req, err := http.NewRequest("GET", "/foo", strings.NewReader(""))
+				Expect(err).ToNot(HaveOccurred())
+				req = req.WithContext(ctx)
+				req.Header.Add(net.HeaderDepth, "infinity")
+
+				handler.HandlePathPropfind(rr, req, "/")
+				Expect(rr.Code).To(Equal(http.StatusMultiStatus))
+
+				res, _, err := readResponse(rr.Result().Body)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(len(res.Responses)).To(Equal(7))
+
+				paths := []string{}
+				for _, r := range res.Responses {
+					paths = append(paths, r.Href)
+				}
+				Expect(paths).To(ConsistOf(
+					"http:/127.0.0.1:3000/foo/",
+					"http:/127.0.0.1:3000/foo/bar",
+					"http:/127.0.0.1:3000/foo/baz",
+					"http:/127.0.0.1:3000/foo/Shares/sharedFile",
+					"http:/127.0.0.1:3000/foo/Shares/sharedFile2",
+					"http:/127.0.0.1:3000/foo/Shares/sharedDir/",
+					"http:/127.0.0.1:3000/foo/Shares/sharedDir/something",
+				))
 			})
 		})
 
@@ -456,8 +499,8 @@ var _ = Describe("Propfind", func() {
 			PIt("handles children with no parent", func() {
 				rr := httptest.NewRecorder()
 				req, err := http.NewRequest("GET", "/", strings.NewReader(""))
-				req = req.WithContext(ctx)
 				Expect(err).ToNot(HaveOccurred())
+				req = req.WithContext(ctx)
 
 				handler.HandlePathPropfind(rr, req, "/")
 				Expect(rr.Code).To(Equal(http.StatusOK))
@@ -466,8 +509,8 @@ var _ = Describe("Propfind", func() {
 			It("mounts embedded spaces", func() {
 				rr := httptest.NewRecorder()
 				req, err := http.NewRequest("GET", "/foo", strings.NewReader(""))
-				req = req.WithContext(ctx)
 				Expect(err).ToNot(HaveOccurred())
+				req = req.WithContext(ctx)
 
 				handler.HandlePathPropfind(rr, req, "/")
 				Expect(rr.Code).To(Equal(http.StatusMultiStatus))
@@ -496,8 +539,8 @@ var _ = Describe("Propfind", func() {
 			It("stats the embedded space", func() {
 				rr := httptest.NewRecorder()
 				req, err := http.NewRequest("GET", "/foo/qux/", strings.NewReader(""))
-				req = req.WithContext(ctx)
 				Expect(err).ToNot(HaveOccurred())
+				req = req.WithContext(ctx)
 
 				handler.HandlePathPropfind(rr, req, "/")
 				Expect(rr.Code).To(Equal(http.StatusMultiStatus))
@@ -544,8 +587,8 @@ var _ = Describe("Propfind", func() {
 		It("stats the space root", func() {
 			rr := httptest.NewRecorder()
 			req, err := http.NewRequest("GET", "/", strings.NewReader(""))
-			req = req.WithContext(ctx)
 			Expect(err).ToNot(HaveOccurred())
+			req = req.WithContext(ctx)
 
 			handler.HandleSpacesPropfind(rr, req, "foospace")
 			Expect(rr.Code).To(Equal(http.StatusMultiStatus))
@@ -570,8 +613,8 @@ var _ = Describe("Propfind", func() {
 		It("stats a file", func() {
 			rr := httptest.NewRecorder()
 			req, err := http.NewRequest("GET", "/bar", strings.NewReader(""))
-			req = req.WithContext(ctx)
 			Expect(err).ToNot(HaveOccurred())
+			req = req.WithContext(ctx)
 
 			handler.HandleSpacesPropfind(rr, req, "foospace")
 			Expect(rr.Code).To(Equal(http.StatusMultiStatus))
@@ -596,8 +639,8 @@ var _ = Describe("Propfind", func() {
 
 			rr := httptest.NewRecorder()
 			req, err := http.NewRequest("GET", "/baz", strings.NewReader(""))
-			req = req.WithContext(ctx)
 			Expect(err).ToNot(HaveOccurred())
+			req = req.WithContext(ctx)
 
 			handler.HandleSpacesPropfind(rr, req, "foospace")
 			Expect(rr.Code).To(Equal(http.StatusMultiStatus))
