@@ -1179,35 +1179,3 @@ func metadataKeyOf(n *xml.Name) string {
 		return fmt.Sprintf("%s/%s", n.Space, n.Local)
 	}
 }
-
-// UnmarshalXML appends the property names enclosed within start to pn.
-//
-// It returns an error if start does not contain any properties or if
-// properties contain values. Character data between properties is ignored.
-func (pn *Props) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	for {
-		t, err := props.Next(d)
-		if err != nil {
-			return err
-		}
-		switch e := t.(type) {
-		case xml.EndElement:
-			// jfd: I think <d:prop></d:prop> is perfectly valid ... treat it as allprop
-			/*
-				if len(*pn) == 0 {
-					return fmt.Errorf("%s must not be empty", start.Name.Local)
-				}
-			*/
-			return nil
-		case xml.StartElement:
-			t, err = props.Next(d)
-			if err != nil {
-				return err
-			}
-			if _, ok := t.(xml.EndElement); !ok {
-				return fmt.Errorf("unexpected token %T", t)
-			}
-			*pn = append(*pn, e.Name)
-		}
-	}
-}
