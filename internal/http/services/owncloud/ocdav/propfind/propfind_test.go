@@ -160,7 +160,7 @@ var _ = Describe("Propfind", func() {
 				Id:   &sprovider.ResourceId{OpaqueId: "foospaceroot", StorageId: "foospaceroot"},
 				Type: sprovider.ResourceType_RESOURCE_TYPE_CONTAINER,
 				Path: ".",
-				Size: uint64(101),
+				Size: uint64(131),
 			})
 		mockListContainer(&sprovider.Reference{ResourceId: &sprovider.ResourceId{OpaqueId: "foospaceroot"}, Path: "."},
 			[]*sprovider.ResourceInfo{
@@ -174,12 +174,27 @@ var _ = Describe("Propfind", func() {
 					Path: "baz",
 					Size: 1,
 				},
+				{
+					Type: sprovider.ResourceType_RESOURCE_TYPE_CONTAINER,
+					Path: "dir",
+					Size: 30,
+				},
 			})
 		mockStat(&sprovider.Reference{ResourceId: &sprovider.ResourceId{OpaqueId: "foospaceroot"}, Path: "./bar"},
 			&sprovider.ResourceInfo{
+				Id:   &sprovider.ResourceId{StorageId: "foospace", OpaqueId: "foospacebar"},
 				Type: sprovider.ResourceType_RESOURCE_TYPE_FILE,
 				Path: "./bar",
 				Size: uint64(100),
+			})
+		mockListContainer(&sprovider.Reference{ResourceId: &sprovider.ResourceId{OpaqueId: "foospaceroot"}, Path: "./dir"},
+			[]*sprovider.ResourceInfo{
+				{
+					Id:   &sprovider.ResourceId{StorageId: "foospace", OpaqueId: "dirent"},
+					Type: sprovider.ResourceType_RESOURCE_TYPE_FILE,
+					Path: "entry",
+					Size: 30,
+				},
 			})
 
 		mockStat(&sprovider.Reference{ResourceId: &sprovider.ResourceId{OpaqueId: "fooquxspaceroot"}, Path: "."},
@@ -236,9 +251,31 @@ var _ = Describe("Propfind", func() {
 				},
 			})
 
-		client.On("ListPublicShares", mock.Anything, mock.Anything).Return(&link.ListPublicSharesResponse{
-			Status: status.NewOK(ctx),
-		}, nil)
+		client.On("ListPublicShares", mock.Anything, mock.Anything).Return(
+			func(_ context.Context, req *link.ListPublicSharesRequest, _ ...grpc.CallOption) *link.ListPublicSharesResponse {
+
+				var shares []*link.PublicShare
+				if len(req.Filters) == 0 {
+					shares = []*link.PublicShare{}
+				} else {
+					term := req.Filters[0].Term.(*link.ListPublicSharesRequest_Filter_ResourceId)
+					switch {
+					case term != nil && term.ResourceId != nil && term.ResourceId.OpaqueId == "foospacebar":
+						shares = []*link.PublicShare{
+							{
+								Id:         &link.PublicShareId{OpaqueId: "share1"},
+								ResourceId: &sprovider.ResourceId{StorageId: "foospace", OpaqueId: "foospacebar"},
+							},
+						}
+					default:
+						shares = []*link.PublicShare{}
+					}
+				}
+				return &link.ListPublicSharesResponse{
+					Status: status.NewOK(ctx),
+					Share:  shares,
+				}
+			}, nil)
 	})
 
 	Describe("NewHandler", func() {
@@ -285,11 +322,11 @@ var _ = Describe("Propfind", func() {
 
 				res, _, err := readResponse(rr.Result().Body)
 				Expect(err).ToNot(HaveOccurred())
-				Expect(len(res.Responses)).To(Equal(3))
+				Expect(len(res.Responses)).To(Equal(4))
 
 				root := res.Responses[0]
 				Expect(root.Href).To(Equal("http:/127.0.0.1:3000/foo/"))
-				Expect(string(root.Propstat[0].Prop[0].InnerXML)).To(ContainSubstring("<oc:size>101</oc:size>"))
+				Expect(string(root.Propstat[0].Prop[0].InnerXML)).To(ContainSubstring("<oc:size>131</oc:size>"))
 
 				bar := res.Responses[1]
 				Expect(bar.Href).To(Equal("http:/127.0.0.1:3000/foo/bar"))
@@ -298,6 +335,10 @@ var _ = Describe("Propfind", func() {
 				baz := res.Responses[2]
 				Expect(baz.Href).To(Equal("http:/127.0.0.1:3000/foo/baz"))
 				Expect(string(baz.Propstat[0].Prop[0].InnerXML)).To(ContainSubstring("<d:getcontentlength>1</d:getcontentlength>"))
+
+				dir := res.Responses[3]
+				Expect(dir.Href).To(Equal("http:/127.0.0.1:3000/foo/dir/"))
+				Expect(string(dir.Propstat[0].Prop[0].InnerXML)).To(ContainSubstring("<oc:size>30</oc:size>"))
 			})
 
 			It("stats a file", func() {
@@ -349,13 +390,13 @@ var _ = Describe("Propfind", func() {
 
 				res, _, err := readResponse(rr.Result().Body)
 				Expect(err).ToNot(HaveOccurred())
-				Expect(len(res.Responses)).To(Equal(4))
+				Expect(len(res.Responses)).To(Equal(5))
 
 				parent := res.Responses[0]
 				Expect(parent.Href).To(Equal("http:/127.0.0.1:3000/foo/"))
-				Expect(string(parent.Propstat[0].Prop[0].InnerXML)).To(ContainSubstring("<oc:size>2101</oc:size>"))
+				Expect(string(parent.Propstat[0].Prop[0].InnerXML)).To(ContainSubstring("<oc:size>2131</oc:size>"))
 
-				sf := res.Responses[3]
+				sf := res.Responses[4]
 				Expect(sf.Href).To(Equal("http:/127.0.0.1:3000/foo/Shares/"))
 				Expect(string(sf.Propstat[0].Prop[0].InnerXML)).To(ContainSubstring("<oc:size>2000</oc:size>"))
 			})
@@ -415,13 +456,13 @@ var _ = Describe("Propfind", func() {
 
 				res, _, err := readResponse(rr.Result().Body)
 				Expect(err).ToNot(HaveOccurred())
-				Expect(len(res.Responses)).To(Equal(4))
+				Expect(len(res.Responses)).To(Equal(5))
 
 				parent := res.Responses[0]
 				Expect(parent.Href).To(Equal("http:/127.0.0.1:3000/foo/"))
-				Expect(string(parent.Propstat[0].Prop[0].InnerXML)).To(ContainSubstring("<oc:size>6101</oc:size>"))
+				Expect(string(parent.Propstat[0].Prop[0].InnerXML)).To(ContainSubstring("<oc:size>6131</oc:size>"))
 
-				shares := res.Responses[3]
+				shares := res.Responses[4]
 				Expect(shares.Href).To(Equal("http:/127.0.0.1:3000/foo/Shares/"))
 				Expect(string(shares.Propstat[0].Prop[0].InnerXML)).To(ContainSubstring("<oc:size>6000</oc:size>"))
 				Expect(string(shares.Propstat[0].Prop[0].InnerXML)).To(ContainSubstring("<d:getlastmodified>Thu, 01 Jan 1970 00:00:03 GMT</d:getlastmodified>"))
@@ -446,7 +487,7 @@ var _ = Describe("Propfind", func() {
 				Expect(string(sf.Propstat[0].Prop[0].InnerXML)).To(ContainSubstring("<d:getcontentlength>2000</d:getcontentlength>"))
 			})
 
-			It("includes all the things™ when depth is inifinity", func() {
+			It("includes all the things™ when depth is infinity", func() {
 				rr := httptest.NewRecorder()
 				req, err := http.NewRequest("GET", "/foo", strings.NewReader(""))
 				Expect(err).ToNot(HaveOccurred())
@@ -458,7 +499,7 @@ var _ = Describe("Propfind", func() {
 
 				res, _, err := readResponse(rr.Result().Body)
 				Expect(err).ToNot(HaveOccurred())
-				Expect(len(res.Responses)).To(Equal(7))
+				Expect(len(res.Responses)).To(Equal(9))
 
 				paths := []string{}
 				for _, r := range res.Responses {
@@ -468,6 +509,8 @@ var _ = Describe("Propfind", func() {
 					"http:/127.0.0.1:3000/foo/",
 					"http:/127.0.0.1:3000/foo/bar",
 					"http:/127.0.0.1:3000/foo/baz",
+					"http:/127.0.0.1:3000/foo/dir/",
+					"http:/127.0.0.1:3000/foo/dir/entry",
 					"http:/127.0.0.1:3000/foo/Shares/sharedFile",
 					"http:/127.0.0.1:3000/foo/Shares/sharedFile2",
 					"http:/127.0.0.1:3000/foo/Shares/sharedDir/",
@@ -517,11 +560,11 @@ var _ = Describe("Propfind", func() {
 
 				res, _, err := readResponse(rr.Result().Body)
 				Expect(err).ToNot(HaveOccurred())
-				Expect(len(res.Responses)).To(Equal(4))
+				Expect(len(res.Responses)).To(Equal(5))
 
 				root := res.Responses[0]
 				Expect(root.Href).To(Equal("http:/127.0.0.1:3000/foo/"))
-				Expect(string(root.Propstat[0].Prop[0].InnerXML)).To(ContainSubstring("<oc:size>1101</oc:size>"))
+				Expect(string(root.Propstat[0].Prop[0].InnerXML)).To(ContainSubstring("<oc:size>1131</oc:size>"))
 
 				bar := res.Responses[1]
 				Expect(bar.Href).To(Equal("http:/127.0.0.1:3000/foo/bar"))
@@ -531,7 +574,11 @@ var _ = Describe("Propfind", func() {
 				Expect(baz.Href).To(Equal("http:/127.0.0.1:3000/foo/baz"))
 				Expect(string(baz.Propstat[0].Prop[0].InnerXML)).To(ContainSubstring("<d:getcontentlength>1</d:getcontentlength>"))
 
-				qux := res.Responses[3]
+				dir := res.Responses[3]
+				Expect(dir.Href).To(Equal("http:/127.0.0.1:3000/foo/dir/"))
+				Expect(string(dir.Propstat[0].Prop[0].InnerXML)).To(ContainSubstring("<oc:size>30</oc:size>"))
+
+				qux := res.Responses[4]
 				Expect(qux.Href).To(Equal("http:/127.0.0.1:3000/foo/qux/"))
 				Expect(string(qux.Propstat[0].Prop[0].InnerXML)).To(ContainSubstring("<oc:size>1000</oc:size>"))
 			})
@@ -562,12 +609,20 @@ var _ = Describe("Propfind", func() {
 
 	Describe("HandleSpacesPropfind", func() {
 		JustBeforeEach(func() {
-			client.On("ListStorageSpaces", mock.Anything, mock.MatchedBy(func(req *sprovider.ListStorageSpacesRequest) bool {
-				return req.Filters[0].Term.(*sprovider.ListStorageSpacesRequest_Filter_Id).Id.OpaqueId == "foospace"
-			})).Return(&sprovider.ListStorageSpacesResponse{
-				Status:        status.NewOK(ctx),
-				StorageSpaces: []*sprovider.StorageSpace{foospace},
-			}, nil)
+			client.On("ListStorageSpaces", mock.Anything, mock.Anything).Return(
+				func(_ context.Context, req *sprovider.ListStorageSpacesRequest, _ ...grpc.CallOption) *sprovider.ListStorageSpacesResponse {
+					var spaces []*sprovider.StorageSpace
+					switch {
+					case req.Filters[0].Term.(*sprovider.ListStorageSpacesRequest_Filter_Id).Id.OpaqueId == "foospace":
+						spaces = []*sprovider.StorageSpace{foospace}
+					default:
+						spaces = []*sprovider.StorageSpace{}
+					}
+					return &sprovider.ListStorageSpacesResponse{
+						Status:        status.NewOK(ctx),
+						StorageSpaces: spaces,
+					}
+				}, nil)
 		})
 
 		It("handles invalid space ids", func() {
@@ -595,11 +650,11 @@ var _ = Describe("Propfind", func() {
 
 			res, _, err := readResponse(rr.Result().Body)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(len(res.Responses)).To(Equal(3))
+			Expect(len(res.Responses)).To(Equal(4))
 
 			root := res.Responses[0]
 			Expect(root.Href).To(Equal("http:/127.0.0.1:3000/foospace/"))
-			Expect(string(root.Propstat[0].Prop[0].InnerXML)).To(ContainSubstring("<oc:size>101</oc:size>"))
+			Expect(string(root.Propstat[0].Prop[0].InnerXML)).To(ContainSubstring("<oc:size>131</oc:size>"))
 
 			bar := res.Responses[1]
 			Expect(bar.Href).To(Equal("http:/127.0.0.1:3000/foospace/bar"))
@@ -608,6 +663,10 @@ var _ = Describe("Propfind", func() {
 			baz := res.Responses[2]
 			Expect(baz.Href).To(Equal("http:/127.0.0.1:3000/foospace/baz"))
 			Expect(string(baz.Propstat[0].Prop[0].InnerXML)).To(ContainSubstring("<d:getcontentlength>1</d:getcontentlength>"))
+
+			dir := res.Responses[3]
+			Expect(dir.Href).To(Equal("http:/127.0.0.1:3000/foospace/dir/"))
+			Expect(string(dir.Propstat[0].Prop[0].InnerXML)).To(ContainSubstring("<oc:size>30</oc:size>"))
 		})
 
 		It("stats a file", func() {
@@ -650,6 +709,33 @@ var _ = Describe("Propfind", func() {
 			Expect(len(res.Responses)).To(Equal(2))
 			Expect(string(res.Responses[0].Propstat[0].Prop[0].InnerXML)).To(ContainSubstring("<oc:size>50</oc:size>"))
 			Expect(string(res.Responses[1].Propstat[0].Prop[0].InnerXML)).To(ContainSubstring("<oc:size>50</oc:size>"))
+		})
+
+		It("includes all the things™ when depth is infinity", func() {
+			rr := httptest.NewRecorder()
+			req, err := http.NewRequest("GET", "/", strings.NewReader(""))
+			req.Header.Add(net.HeaderDepth, "infinity")
+			Expect(err).ToNot(HaveOccurred())
+			req = req.WithContext(ctx)
+
+			handler.HandleSpacesPropfind(rr, req, "foospace")
+			Expect(rr.Code).To(Equal(http.StatusMultiStatus))
+
+			res, _, err := readResponse(rr.Result().Body)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(res.Responses)).To(Equal(5))
+
+			paths := []string{}
+			for _, r := range res.Responses {
+				paths = append(paths, r.Href)
+			}
+			Expect(paths).To(ConsistOf(
+				"http:/127.0.0.1:3000/foospace/",
+				"http:/127.0.0.1:3000/foospace/bar",
+				"http:/127.0.0.1:3000/foospace/baz",
+				"http:/127.0.0.1:3000/foospace/dir/",
+				"http:/127.0.0.1:3000/foospace/dir/entry",
+			))
 		})
 	})
 })
