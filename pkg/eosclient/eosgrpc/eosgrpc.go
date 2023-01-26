@@ -995,6 +995,11 @@ func (c *Client) CreateDir(ctx context.Context, auth eosclient.Authorization, pa
 
 }
 
+// Symlinks creates a symbolic link
+func (c *Client) Symlink(ctx context.Context, auth eosclient.Authorization, target, link string) error {
+	return errtypes.NotSupported("not implemented")
+}
+
 func (c *Client) rm(ctx context.Context, auth eosclient.Authorization, path string, noRecycle bool) error {
 	log := appctx.GetLogger(ctx)
 	log.Info().Str("func", "rm").Str("uid,gid", auth.Role.UID+","+auth.Role.GID).Str("path", path).Msg("")

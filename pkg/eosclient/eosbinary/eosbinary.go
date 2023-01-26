@@ -713,6 +713,13 @@ func (c *Client) CreateDir(ctx context.Context, auth eosclient.Authorization, pa
 	return err
 }
 
+// Symlink(ctx context.Context, target, link string) error
+func (c *Client) Symlink(ctx context.Context, auth eosclient.Authorization, target, link string) error {
+	args := []string{"ln", link, target}
+	_, _, err := c.executeEOS(ctx, args, auth)
+	return err
+}
+
 // Remove removes the resource at the given path
 func (c *Client) Remove(ctx context.Context, auth eosclient.Authorization, path string, noRecycle bool) error {
 	args := []string{"rm", "-r"}

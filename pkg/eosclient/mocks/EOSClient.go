@@ -502,6 +502,20 @@ func (_m *EOSClient) SetQuota(ctx context.Context, rooAuth eosclient.Authorizati
 	return r0
 }
 
+// Symlink provides a mock function with given fields: ctx, auth, target, link
+func (_m *EOSClient) Symlink(ctx context.Context, auth eosclient.Authorization, target string, link string) error {
+	ret := _m.Called(ctx, auth, target, link)
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, eosclient.Authorization, string, string) error); ok {
+		r0 = rf(ctx, auth, target, link)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // Touch provides a mock function with given fields: ctx, auth, path
 func (_m *EOSClient) Touch(ctx context.Context, auth eosclient.Authorization, path string) error {
 	ret := _m.Called(ctx, auth, path)
