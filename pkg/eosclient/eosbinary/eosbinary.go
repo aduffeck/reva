@@ -1097,8 +1097,8 @@ func (c *Client) parseFileInfo(ctx context.Context, raw string, parseFavoriteKey
 			switch {
 			case partsByEqual[0] == "xattrn":
 				previousXAttr = partsByEqual[1]
-				if previousXAttr != "user.acl" {
-					previousXAttr = strings.Replace(previousXAttr, "user.", "", 1)
+				if previousXAttr == "user.acl" {
+					previousXAttr = strings.TrimPrefix(previousXAttr, "user.")
 				}
 			case partsByEqual[0] == "xattrv":
 				attrs[previousXAttr] = partsByEqual[1]

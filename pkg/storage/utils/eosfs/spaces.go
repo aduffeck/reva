@@ -20,8 +20,10 @@ package eosfs
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -31,18 +33,26 @@ import (
 	rpc "github.com/cs3org/go-cs3apis/cs3/rpc/v1beta1"
 	provider "github.com/cs3org/go-cs3apis/cs3/storage/provider/v1beta1"
 	types "github.com/cs3org/go-cs3apis/cs3/types/v1beta1"
+	ocsconv "github.com/cs3org/reva/v2/internal/http/services/owncloud/ocs/conversions"
 	"github.com/cs3org/reva/v2/pkg/appctx"
 	"github.com/cs3org/reva/v2/pkg/eosclient"
 	"github.com/cs3org/reva/v2/pkg/errtypes"
+	"github.com/cs3org/reva/v2/pkg/rgrpc/status"
+	"github.com/cs3org/reva/v2/pkg/storage/utils/acl"
+	"github.com/cs3org/reva/v2/pkg/storage/utils/grants"
 	"github.com/cs3org/reva/v2/pkg/storage/utils/templates"
 	"github.com/cs3org/reva/v2/pkg/storagespace"
+	"github.com/google/uuid"
 	"github.com/pkg/errors"
 )
 
 const (
 	spaceTypePersonal = "personal"
 	spaceTypeProject  = "project"
-	// spaceTypeShare    = "share"
+
+	OcisPrefix    = "ocis."
+	SpaceNameAttr = OcisPrefix + "space.name"
+	SpaceTypeAttr = OcisPrefix + "space.type"
 )
 
 // SpacesConfig specifies the required configuration parameters needed
@@ -208,106 +218,141 @@ func (fs *eosfs) listPersonalStorageSpaces(ctx context.Context, u *userpb.User, 
 	}}, nil
 }
 
-func (fs *eosfs) listProjectStorageSpaces(ctx context.Context, user *userpb.User, spaceID, spacePath string) ([]*provider.StorageSpace, error) {
-	if !fs.conf.SpacesConfig.Enabled {
-		return nil, errtypes.NotSupported("list storage spaces")
-	}
-
-	log := appctx.GetLogger(ctx)
-
-	// Find all the project groups the user belongs to
-	userProjectGroupsMap := make(map[string]bool)
-	for _, group := range user.Groups {
-		match := egroupRegex.FindStringSubmatch(group)
-		if match != nil {
-			userProjectGroupsMap[match[1]] = true
-		}
-	}
-
-	if len(userProjectGroupsMap) == 0 {
-		return nil, nil
-	}
-
-	query := "SELECT project_name, eos_relative_path FROM " + fs.conf.SpacesConfig.DbTable + " WHERE project_name in (?" + strings.Repeat(",?", len(userProjectGroupsMap)-1) + ")"
-	params := []interface{}{}
-	for k := range userProjectGroupsMap {
-		params = append(params, k)
-	}
-
-	rows, err := fs.spacesDB.Query(query, params...)
+func (fs *eosfs) fileinfoToSpace(ctx context.Context, fi *eosclient.FileInfo) (*provider.StorageSpace, error) {
+	relPath := strings.TrimPrefix(fi.File, fs.conf.Namespace)
+	sid := fmt.Sprintf("%d", fi.FID)
+	ssID, err := storagespace.FormatReference(
+		&provider.Reference{
+			ResourceId: &provider.ResourceId{
+				SpaceId:  sid,
+				OpaqueId: sid,
+			},
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
-	var dbProjects []*provider.StorageSpace
-	for rows.Next() {
-		var name, relPath string
-		if err = rows.Scan(&name, &relPath); err == nil {
-			rootAuth, err := fs.getRootAuth(ctx)
-			if err != nil {
-				return nil, err
-			}
-			fi, err := fs.c.GetFileInfoByPath(ctx, rootAuth, path.Join(fs.conf.Namespace, relPath))
-			if err != nil {
-				log.Error().Err(err).Str("path", relPath).Msgf("eosfs: error listing project space - can't get file info by path")
-				continue
-			}
-			info, err := fs.convertToResourceInfo(ctx, fi, strconv.FormatUint(fi.Inode, 10), true)
-			if err == nil {
-				if (spaceID == "" || spaceID == info.Id.OpaqueId) && (spacePath == "" || spacePath == relPath) {
-					// If the request was for a relative ref, return just the base path
-					if !strings.HasPrefix(spacePath, "/") {
-						relPath = path.Base(relPath)
-					}
-
-					ssID, err := storagespace.FormatReference(
-						&provider.Reference{
-							ResourceId: &provider.ResourceId{
-								SpaceId:  info.Id.SpaceId,
-								OpaqueId: info.Id.OpaqueId,
-							},
-						},
-					)
-					if err != nil {
-						log.Error().Err(err).Str("path", relPath).Msgf("eosfs: error listing project space - invalid resource id")
-						continue
-					}
-					dbProjects = append(dbProjects, &provider.StorageSpace{
-						Id:        &provider.StorageSpaceId{OpaqueId: ssID},
-						Name:      name,
-						SpaceType: "project",
-						Owner: &userpb.User{
-							Id: info.Owner,
-						},
-						Root: &provider.ResourceId{
-							SpaceId:  info.Id.OpaqueId,
-							OpaqueId: info.Id.OpaqueId,
-						},
-						Mtime: info.Mtime,
-						Quota: &provider.Quota{},
-						Opaque: &types.Opaque{
-							Map: map[string]*types.OpaqueEntry{
-								"path": {
-									Decoder: "plain",
-									Value:   []byte(relPath),
-								},
-								"spaceAlias": {
-									Decoder: "plain",
-									Value:   []byte("project/" + name),
-								},
-							},
-						},
-					})
-				}
-
-			} else {
-				log.Error().Err(err).Str("path", relPath).Msgf("eosfs: error statting storage space")
-			}
-		}
+	owner, err := fs.getUserIDGateway(ctx, strconv.FormatUint(fi.UID, 10))
+	if err != nil {
+		sublog := appctx.GetLogger(ctx).With().Logger()
+		sublog.Warn().Uint64("UID", fi.UID).Msg("could not lookup userid, leaving empty")
 	}
 
-	return dbProjects, nil
+	grantMap := make(map[string]*provider.ResourcePermissions, len(fi.SysACL.Entries))
+	groupMap := make(map[string]struct{})
+	for _, g := range fi.SysACL.Entries {
+		var id string
+		switch g.Type {
+		case acl.TypeGroup:
+			id = g.Qualifier
+			groupMap[id] = struct{}{}
+		case acl.TypeUser:
+			grantee, err := fs.getUserIDGateway(ctx, g.Qualifier)
+			if err != nil {
+				sublog := appctx.GetLogger(ctx).With().Logger()
+				sublog.Warn().Str("userid", g.Qualifier).Msg("could not lookup userid, leaving empty")
+			}
+			id = grantee.OpaqueId
+		default:
+			continue
+		}
+
+		grantMap[id] = grants.GetGrantPermissionSet(g.Permissions)
+	}
+
+	grantMapJSON, err := json.Marshal(grantMap)
+	if err != nil {
+		return nil, err
+	}
+
+	groupMapJSON, err := json.Marshal(groupMap)
+	if err != nil {
+		return nil, err
+	}
+
+	spaceName := fi.Attrs["user."+SpaceNameAttr]
+	spaceType := fi.Attrs["user."+SpaceTypeAttr]
+	return &provider.StorageSpace{
+		Id:        &provider.StorageSpaceId{OpaqueId: ssID},
+		SpaceType: spaceType,
+		Name:      spaceName,
+		Owner:     &userpb.User{Id: owner},
+		Root: &provider.ResourceId{
+			SpaceId:  sid,
+			OpaqueId: sid,
+		},
+		Mtime: &types.Timestamp{
+			Seconds: fi.MTimeSec,
+			Nanos:   fi.MTimeNanos,
+		},
+		Quota: &provider.Quota{},
+		Opaque: &types.Opaque{
+			Map: map[string]*types.OpaqueEntry{
+				"path": {
+					Decoder: "plain",
+					Value:   []byte(relPath),
+				},
+				"spaceAlias": {
+					Decoder: "plain",
+					Value:   []byte("project/" + spaceName),
+				},
+				"grants": {
+					Decoder: "json",
+					Value:   grantMapJSON,
+				},
+				"groups": {
+					Decoder: "json",
+					Value:   groupMapJSON,
+				},
+			},
+		},
+	}, nil
+}
+
+func (fs *eosfs) listProjectStorageSpaces(ctx context.Context, user *userpb.User, spaceID, spacePath string) ([]*provider.StorageSpace, error) {
+	log := appctx.GetLogger(ctx)
+
+	spaces := []*provider.StorageSpace{}
+	spaceIDs := map[string]struct{}{}
+
+	rootAuth, err := fs.getRootAuth(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Collect user spaces
+	indexPath := path.Join(fs.conf.Namespace, "spaceIndexes", "by-user", user.Id.OpaqueId)
+	fis, err := fs.c.List(ctx, rootAuth, indexPath)
+	if err != nil {
+		return nil, err
+	}
+	for _, fi := range fis {
+		spaceIDs[path.Base(fi.File)] = struct{}{}
+	}
+
+	// Read spaces
+	for id, _ := range spaceIDs {
+		spaceid, err := strconv.ParseUint(id, 10, 64)
+		if err != nil {
+			log.Error().Err(err).Str("spaceid", id).Msgf("eosfs: invalid space id")
+			continue
+		}
+		fi, err := fs.c.GetFileInfoByInode(ctx, rootAuth, spaceid)
+		if err != nil {
+			log.Error().Err(err).Uint64("spaceid", spaceid).Msgf("eosfs: error statting storage space")
+			continue
+		}
+
+		space, err := fs.fileinfoToSpace(ctx, fi)
+		if err != nil {
+			log.Error().Err(err).Str("path", fi.File).Msgf("eosfs: error converting storage space")
+			continue
+		}
+		spaces = append(spaces, space)
+
+	}
+	return spaces, nil
 }
 
 func (fs *eosfs) fetchCachedSpaces(ctx context.Context, user *userpb.User, spaceType, spaceID, spacePath string) ([]*provider.StorageSpace, error) {
@@ -334,45 +379,90 @@ func (fs *eosfs) wrapUserHomeStorageSpaceID(ctx context.Context, u *userpb.User,
 }
 
 func (fs *eosfs) CreateStorageSpace(ctx context.Context, req *provider.CreateStorageSpaceRequest) (*provider.CreateStorageSpaceResponse, error) {
-	// The request is to create a user home
-	if req.Type == spaceTypePersonal {
-		rootAuth, err := fs.getRootAuth(ctx)
-		if err != nil {
-			return nil, err
-		}
+	u, err := getUser(ctx)
+	if err != nil {
+		err = errors.Wrap(err, "eosfs: wrap: no user in ctx")
+		return nil, err
+	}
 
-		u, err := getUser(ctx)
-		if err != nil {
-			err = errors.Wrap(err, "eosfs: wrap: no user in ctx")
-			return nil, err
-		}
-
+	spaceToCreate := &provider.StorageSpace{Name: req.Name}
+	var spacePath string
+	switch req.Type {
+	case spaceTypePersonal:
 		// We need the unique path corresponding to the user. We assume that the username is the ID, and determine the path based on a specified template
-		fn, err := fs.wrapUserHomeStorageSpaceID(ctx, u, "/")
+		spacePath, err = fs.wrapUserHomeStorageSpaceID(ctx, u, "/")
+		if err != nil {
+			return nil, err
+		}
+		spaceToCreate.SpaceType = spaceTypePersonal
+	case spaceTypeProject:
+		projectID := uuid.New().String()
+		spacePath = path.Join(fs.conf.Namespace, "spaces", pathify(projectID, 1, 1))
+		spaceToCreate.SpaceType = spaceTypeProject
+	default:
+		return nil, errtypes.NotSupported("eosfs: creating storage spaces of specified type is not supported")
+	}
+
+	space, err := fs.readSpace(ctx, spacePath)
+	if err != nil {
+		space, err = fs.createOrUpdateSpace(ctx, spaceToCreate, spacePath, u)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return &provider.CreateStorageSpaceResponse{
+		Status: &rpc.Status{
+			Code: rpc.Code_CODE_OK,
+		},
+		StorageSpace: space,
+	}, nil
+
+	// We don't support creating any other types of shares (projects or spaces)
+}
+
+func (fs *eosfs) createOrUpdateSpace(ctx context.Context, space *provider.StorageSpace, spacePath string, owner *userpb.User) (*provider.StorageSpace, error) {
+	rootAuth, err := fs.getRootAuth(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = fs.c.GetFileInfoByPath(ctx, rootAuth, spacePath)
+	if err != nil {
+		auth, err := fs.getUserAuth(ctx, owner, spacePath)
 		if err != nil {
 			return nil, err
 		}
 
-		auth, err := fs.getUserAuth(ctx, u, fn)
+		err = fs.c.CreateDir(ctx, rootAuth, spacePath)
 		if err != nil {
 			return nil, err
 		}
 
-		err = fs.c.CreateDir(ctx, rootAuth, fn)
-		if err != nil {
-			return nil, err
-		}
-
-		err = fs.c.Chown(ctx, rootAuth, auth, fn)
+		err = fs.c.Chown(ctx, rootAuth, auth, spacePath)
 		if err != nil {
 			return nil, errors.Wrap(err, "eosfs: error chowning directory")
 		}
 
-		err = fs.c.Chmod(ctx, rootAuth, "2770", fn)
+		err = fs.c.Chmod(ctx, rootAuth, "2770", spacePath)
 		if err != nil {
 			return nil, errors.Wrap(err, "eosfs: error chmoding directory")
 		}
 
+		eosFileInfo, err := fs.c.GetFileInfoByPath(ctx, auth, spacePath)
+		if err != nil {
+			return nil, err
+		}
+
+		sid := strconv.FormatUint(eosFileInfo.Inode, 10)
+
+		// Create index entry for the space owner
+		err = fs.linkIndex(ctx, "user", owner.Id.OpaqueId, sid, spacePath)
+		if err != nil {
+			return nil, err
+		}
+
+		// Set initial attrs during creation
 		attrs := []*eosclient.Attribute{
 			{
 				Type: SystemAttr,
@@ -394,62 +484,142 @@ func (fs *eosfs) CreateStorageSpace(ctx context.Context, req *provider.CreateSto
 				Key:  "forced.atomic",
 				Val:  "1",
 			},
+			{
+				Type: UserAttr,
+				Key:  SpaceTypeAttr,
+				Val:  space.SpaceType,
+			},
 		}
 
 		for _, attr := range attrs {
-			err = fs.c.SetAttr(ctx, rootAuth, attr, false, false, fn)
+			err = fs.c.SetAttr(ctx, rootAuth, attr, false, false, spacePath)
 			if err != nil {
 				return nil, errors.Wrap(err, "eosfs: error setting attribute")
 			}
 		}
 
-		eosFileInfo, err := fs.c.GetFileInfoByPath(ctx, auth, fn)
-		if err != nil {
-			return nil, err
-		}
-		sid := fmt.Sprintf("%d", eosFileInfo.FID)
-
-		space := &provider.StorageSpace{
-			Id:        &provider.StorageSpaceId{OpaqueId: sid},
-			Name:      u.Id.OpaqueId,
-			SpaceType: "personal",
-			Owner:     u,
-			Root: &provider.ResourceId{
-				StorageId: sid,
-				OpaqueId:  sid,
-			},
-			Mtime: &types.Timestamp{
-				Seconds: eosFileInfo.MTimeSec,
-				Nanos:   eosFileInfo.MTimeNanos,
-			},
-			Quota: &provider.Quota{},
-			Opaque: &types.Opaque{
-				Map: map[string]*types.OpaqueEntry{
-					"path": {
-						Decoder: "plain",
-						Value:   []byte(path.Base(fn)),
+		if space.SpaceType != spaceTypePersonal {
+			if err := fs.AddGrant(ctx, &provider.Reference{
+				ResourceId: &provider.ResourceId{
+					SpaceId:  sid,
+					OpaqueId: sid,
+				},
+			}, &provider.Grant{
+				Grantee: &provider.Grantee{
+					Type: provider.GranteeType_GRANTEE_TYPE_USER,
+					Id: &provider.Grantee_UserId{
+						UserId: owner.Id,
 					},
 				},
-			},
+				Permissions: ocsconv.NewManagerRole().CS3ResourcePermissions(),
+			}); err != nil {
+				return nil, err
+			}
 		}
-
-		return &provider.CreateStorageSpaceResponse{
-			Status: &rpc.Status{
-				Code: rpc.Code_CODE_OK,
-			},
-			StorageSpace: space,
-		}, nil
-
 	}
 
-	// We don't support creating any other types of shares (projects or spaces)
-	return nil, errtypes.NotSupported("eosfs: creating storage spaces of specified type is not supported")
+	// Set/Update changed attributes
+	attrs := []*eosclient.Attribute{}
+	if space.Name != "" {
+		attrs = append(attrs, &eosclient.Attribute{
+			Type: UserAttr,
+			Key:  SpaceNameAttr,
+			Val:  space.Name,
+		})
+	}
+	for _, attr := range attrs {
+		err = fs.c.SetAttr(ctx, rootAuth, attr, false, false, spacePath)
+		if err != nil {
+			return nil, errors.Wrap(err, "eosfs: error setting attribute")
+		}
+	}
+	return fs.readSpace(ctx, spacePath)
+}
+
+func (fs *eosfs) readSpace(ctx context.Context, spacePath string) (*provider.StorageSpace, error) {
+	rootAuth, err := fs.getRootAuth(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	eosFileInfo, err := fs.c.GetFileInfoByPath(ctx, rootAuth, spacePath)
+	if err != nil {
+		return nil, err
+	}
+
+	return fs.fileinfoToSpace(ctx, eosFileInfo)
 }
 
 func (fs *eosfs) UpdateStorageSpace(ctx context.Context, req *provider.UpdateStorageSpaceRequest) (*provider.UpdateStorageSpaceResponse, error) {
-	return nil, errtypes.NotSupported("update storage space")
+	auth, err := fs.getRootAuth(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	id, err := storagespace.ParseID(req.StorageSpace.GetId().GetOpaqueId())
+	if err != nil {
+		return nil, err
+	}
+
+	inode, err := strconv.ParseUint(id.SpaceId, 10, 64)
+	if err != nil {
+		return nil, err
+	}
+
+	eosFileInfo, err := fs.c.GetFileInfoByInode(ctx, auth, inode)
+	if err != nil {
+		return nil, errors.Wrap(err, "eosfs: error getting file info by inode")
+	}
+
+	owner, err := fs.getUserIDGateway(ctx, strconv.FormatUint(eosFileInfo.UID, 10))
+	if err != nil {
+		return nil, err
+	}
+
+	space, err := fs.createOrUpdateSpace(ctx, req.StorageSpace, eosFileInfo.File, &userpb.User{Id: owner})
+	if err != nil {
+		return nil, err
+	}
+	return &provider.UpdateStorageSpaceResponse{
+		Status:       status.NewOK(ctx),
+		StorageSpace: space,
+	}, nil
 }
 
 func (fs *eosfs) DeleteStorageSpace(ctx context.Context, req *provider.DeleteStorageSpaceRequest) error {
 	return errtypes.NotSupported("delete storage spaces")
+}
+
+func (fs *eosfs) linkIndex(ctx context.Context, index, value, id, target string) error {
+	indexPath := path.Join(fs.conf.Namespace, "spaceIndexes", "by-"+index, value, id)
+
+	rootAuth, err := fs.getRootAuth(ctx)
+	if err != nil {
+		return err
+	}
+	err = fs.c.Symlink(ctx, rootAuth, indexPath, target)
+	if err != nil {
+		err = fs.c.CreateDir(ctx, rootAuth, path.Dir(indexPath))
+		if err != nil {
+			return err
+		}
+		return fs.c.Symlink(ctx, rootAuth, target, indexPath)
+	}
+	return nil
+}
+
+// pathify segments the beginning of a string into depth segments of width length
+// pathify("aabbccdd", 3, 1) will return "a/a/b/bccdd"
+func pathify(id string, depth, width int) string {
+	b := strings.Builder{}
+	i := 0
+	for ; i < depth; i++ {
+		if len(id) <= i*width+width {
+			break
+		}
+		b.WriteString(id[i*width : i*width+width])
+		b.WriteRune(filepath.Separator)
+	}
+	b.WriteString(id[i*width:])
+	return b.String()
 }
