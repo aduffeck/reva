@@ -1196,16 +1196,24 @@ func (fs *eosfs) GetMD(ctx context.Context, ref *provider.Reference, mdKeys []st
 	}
 
 	// If it's not a relative reference, return now, else we need to append the path
-	if !utils.IsRelativeReference(ref) || ref.Path == "." {
-		return fs.convertToResourceInfo(ctx, eosFileInfo, ref.ResourceId.GetSpaceId(), false)
+	if utils.IsRelativeReference(ref) && ref.Path != "." {
+		eosFileInfo, err = fs.c.GetFileInfoByPath(ctx, auth, path.Join(eosFileInfo.File, ref.Path))
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	eosFileInfo, err = fs.c.GetFileInfoByPath(ctx, auth, path.Join(eosFileInfo.File, ref.Path))
+	info, err := fs.convertToResourceInfo(ctx, eosFileInfo, ref.ResourceId.GetSpaceId(), true)
 	if err != nil {
 		return nil, err
 	}
 
-	return fs.convertToResourceInfo(ctx, eosFileInfo, ref.ResourceId.GetSpaceId(), true)
+	space, err := fs.resolveSpace(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	info.Space = space
+	return info, nil
 }
 
 func (fs *eosfs) ListFolder(ctx context.Context, ref *provider.Reference, mdKeys, fieldMask []string) ([]*provider.ResourceInfo, error) {
