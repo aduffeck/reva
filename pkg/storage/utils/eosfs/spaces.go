@@ -325,7 +325,11 @@ func (fs *eosfs) listProjectStorageSpaces(ctx context.Context, user *userpb.User
 	indexPath := path.Join(fs.conf.Namespace, "spaceIndexes", "by-user", user.Id.OpaqueId)
 	fis, err := fs.c.List(ctx, rootAuth, indexPath)
 	if err != nil {
-		return nil, err
+		if _, ok := errors.Cause(err).(errtypes.IsNotFound); ok {
+			// ignore. there are no spaces linked to this user yet
+		} else {
+			return nil, err
+		}
 	}
 	for _, fi := range fis {
 		spaceIDs[path.Base(fi.File)] = struct{}{}
