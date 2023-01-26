@@ -979,6 +979,18 @@ func (fs *eosfs) AddGrant(ctx context.Context, ref *provider.Reference, g *provi
 	if err != nil {
 		return errors.Wrap(err, "eosfs: error adding acl")
 	}
+
+	space, err := fs.resolveSpace(ctx, ref)
+	if err != nil {
+		return err
+	}
+	// update the indexes only after successfully setting the grant
+	if g.Grantee.Type == provider.GranteeType_GRANTEE_TYPE_USER {
+		err = fs.linkIndex(ctx, "user", g.GetGrantee().GetUserId().GetOpaqueId(), space.Id.OpaqueId, space.RootInfo.Path)
+		if err != nil {
+			return err
+		}
+	}
 	return nil
 
 }
