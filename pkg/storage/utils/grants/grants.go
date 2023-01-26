@@ -46,7 +46,7 @@ func GetACLPerm(set *provider.ResourcePermissions) (string, error) {
 	if set.ListContainer || set.ListFileVersions {
 		b.WriteString("x")
 	}
-	if set.AddGrant || set.ListGrants || set.RemoveGrant {
+	if set.AddGrant || set.RemoveGrant {
 		b.WriteString("m")
 	}
 	if set.GetQuota {
