@@ -102,7 +102,7 @@ func (fs *eosfs) ListStorageSpaces(ctx context.Context, filter []*provider.ListS
 
 	spaces := []*provider.StorageSpace{}
 
-	if spaceType == "" || spaceType == spaceTypePersonal {
+	if spaceID == "" && (spaceType == "" || spaceType == spaceTypePersonal) {
 		personalSpaces, err := fs.listPersonalStorageSpaces(ctx, u, spaceID, spacePath)
 		if err != nil {
 			return nil, err
