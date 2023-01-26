@@ -1107,6 +1107,18 @@ func (fs *eosfs) RemoveGrant(ctx context.Context, ref *provider.Reference, g *pr
 	if err != nil {
 		return errors.Wrap(err, "eosfs: error removing acl")
 	}
+
+	space, err := fs.resolveSpace(ctx, ref)
+	if err != nil {
+		return err
+	}
+	// update the indexes only after successfully setting the grant
+	if g.Grantee.Type == provider.GranteeType_GRANTEE_TYPE_USER {
+		err = fs.unlinkIndex(ctx, "user", g.GetGrantee().GetUserId().GetOpaqueId(), space.Id.OpaqueId)
+		if err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

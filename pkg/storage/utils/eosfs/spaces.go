@@ -598,6 +598,16 @@ func (fs *eosfs) DeleteStorageSpace(ctx context.Context, req *provider.DeleteSto
 	return errtypes.NotSupported("delete storage spaces")
 }
 
+func (fs *eosfs) unlinkIndex(ctx context.Context, index, value, id string) error {
+	rootAuth, err := fs.getRootAuth(ctx)
+	if err != nil {
+		return err
+	}
+
+	indexPath := path.Join(fs.conf.Namespace, "spaceIndexes", "by-"+index, value, id)
+	return fs.c.Remove(ctx, rootAuth, indexPath, true)
+}
+
 func (fs *eosfs) linkIndex(ctx context.Context, index, value, id, target string) error {
 	indexPath := path.Join(fs.conf.Namespace, "spaceIndexes", "by-"+index, value, id)
 
