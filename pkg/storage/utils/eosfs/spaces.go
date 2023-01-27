@@ -42,6 +42,7 @@ import (
 	"github.com/cs3org/reva/v2/pkg/storage/utils/grants"
 	"github.com/cs3org/reva/v2/pkg/storage/utils/templates"
 	"github.com/cs3org/reva/v2/pkg/storagespace"
+	"github.com/cs3org/reva/v2/pkg/utils"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 )
@@ -50,9 +51,12 @@ const (
 	spaceTypePersonal = "personal"
 	spaceTypeProject  = "project"
 
-	OcisPrefix    = "ocis."
-	SpaceNameAttr = OcisPrefix + "space.name"
-	SpaceTypeAttr = OcisPrefix + "space.type"
+	OcisPrefix           = "ocis."
+	SpaceNameAttr        = OcisPrefix + "space.name"
+	SpaceTypeAttr        = OcisPrefix + "space.type"
+	SpaceDescriptionAttr = OcisPrefix + "space.description"
+	SpaceReadmeAttr      = OcisPrefix + "space.readme"
+	SpaceImageAttr       = OcisPrefix + "space.image"
 )
 
 // SpacesConfig specifies the required configuration parameters needed
@@ -273,7 +277,7 @@ func (fs *eosfs) fileinfoToSpace(ctx context.Context, fi *eosclient.FileInfo) (*
 
 	spaceName := fi.Attrs["user."+SpaceNameAttr]
 	spaceType := fi.Attrs["user."+SpaceTypeAttr]
-	return &provider.StorageSpace{
+	space := &provider.StorageSpace{
 		Id:        &provider.StorageSpaceId{OpaqueId: ssID},
 		SpaceType: spaceType,
 		Name:      spaceName,
@@ -307,7 +311,15 @@ func (fs *eosfs) fileinfoToSpace(ctx context.Context, fi *eosclient.FileInfo) (*
 				},
 			},
 		},
-	}, nil
+	}
+
+	spaceImage, ok := fi.Attrs["user."+SpaceImageAttr]
+	if ok {
+		space.Opaque = utils.AppendPlainToOpaque(space.Opaque, "image", storagespace.FormatResourceID(
+			provider.ResourceId{StorageId: space.Root.StorageId, SpaceId: space.Root.SpaceId, OpaqueId: spaceImage},
+		))
+	}
+	return space, nil
 }
 
 func (fs *eosfs) listProjectStorageSpaces(ctx context.Context, user *userpb.User, spaceID, spacePath string) ([]*provider.StorageSpace, error) {
@@ -535,12 +547,28 @@ func (fs *eosfs) createOrUpdateSpace(ctx context.Context, space *provider.Storag
 			Val:  space.Name,
 		})
 	}
+
+	if space.Opaque != nil {
+		if image := utils.ReadPlainFromOpaque(space.Opaque, "image"); image != "" {
+			imageID, err := storagespace.ParseID(image)
+			if err != nil {
+				return nil, errors.Wrap(err, "eosfs: error parsing the image id")
+			}
+			attrs = append(attrs, &eosclient.Attribute{
+				Type: UserAttr,
+				Key:  SpaceImageAttr,
+				Val:  imageID.OpaqueId,
+			})
+		}
+	}
+
 	for _, attr := range attrs {
 		err = fs.c.SetAttr(ctx, rootAuth, attr, false, false, spacePath)
 		if err != nil {
 			return nil, errors.Wrap(err, "eosfs: error setting attribute")
 		}
 	}
+
 	return fs.readSpace(ctx, spacePath)
 }
 
