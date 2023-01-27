@@ -615,13 +615,18 @@ func (fs *eosfs) linkIndex(ctx context.Context, index, value, id, target string)
 	if err != nil {
 		return err
 	}
-	err = fs.c.Symlink(ctx, rootAuth, indexPath, target)
+	err = fs.c.Symlink(ctx, rootAuth, target, indexPath)
 	if err != nil {
-		err = fs.c.CreateDir(ctx, rootAuth, path.Dir(indexPath))
-		if err != nil {
-			return err
+		if _, ok := errors.Cause(err).(errtypes.AlreadyExists); ok {
+			// ignore. there are no spaces linked to this user yet
+			return nil
+		} else {
+			err = fs.c.CreateDir(ctx, rootAuth, path.Dir(indexPath))
+			if err != nil {
+				return err
+			}
+			return fs.c.Symlink(ctx, rootAuth, target, indexPath)
 		}
-		return fs.c.Symlink(ctx, rootAuth, target, indexPath)
 	}
 	return nil
 }
