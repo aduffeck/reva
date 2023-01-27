@@ -460,7 +460,7 @@ func (c *Client) GetFileInfoByPath(ctx context.Context, auth eosclient.Authoriza
 	}
 
 	if c.opt.VersionInvariant && !isVersionFolder(path) && !info.IsDir {
-		if inode, err := c.getVersionFolderInode(ctx, auth, path); err == nil {
+		if inode, err := c.getVersionFolderInode(ctx, auth, info); err == nil {
 			info.Inode = inode
 		}
 	}
@@ -861,11 +861,18 @@ func (c *Client) GenerateToken(ctx context.Context, auth eosclient.Authorization
 	return stdout, err
 }
 
-func (c *Client) getVersionFolderInode(ctx context.Context, auth eosclient.Authorization, p string) (uint64, error) {
-	versionFolder := getVersionFolder(p)
+func (c *Client) getVersionFolderInode(ctx context.Context, auth eosclient.Authorization, info *eosclient.FileInfo) (uint64, error) {
+	versionFolder := getVersionFolder(info.File)
 	md, err := c.getRawFileInfoByPath(ctx, auth, versionFolder)
 	if err != nil {
-		if err = c.CreateDir(ctx, auth, versionFolder); err != nil {
+		// Create the version folder using the auth of the original resource
+		createAuth := eosclient.Authorization{
+			Role: eosclient.Role{
+				UID: strconv.FormatUint(info.UID, 10),
+				GID: strconv.FormatUint(info.GID, 10),
+			},
+		}
+		if err = c.CreateDir(ctx, createAuth, versionFolder); err != nil {
 			return 0, err
 		}
 		md, err = c.getRawFileInfoByPath(ctx, auth, versionFolder)
