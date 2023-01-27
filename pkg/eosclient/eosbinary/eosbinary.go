@@ -250,6 +250,8 @@ func (c *Client) executeEOS(ctx context.Context, cmdArgs []string, auth eosclien
 			switch exitStatus {
 			case 0:
 				err = nil
+			case int(syscall.EEXIST):
+				err = errtypes.AlreadyExists(errBuf.String())
 			case int(syscall.ENOENT):
 				err = errtypes.NotFound(errBuf.String())
 			case int(syscall.EPERM), int(syscall.E2BIG), int(syscall.EINVAL):
