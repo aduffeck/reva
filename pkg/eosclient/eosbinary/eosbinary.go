@@ -1077,8 +1077,7 @@ func (c *Client) parseQuota(path, raw string) (*eosclient.QuotaInfo, error) {
 
 // TODO(labkode): better API to access extended attributes.
 func (c *Client) parseFileInfo(ctx context.Context, raw string, parseFavoriteKey bool) (*eosclient.FileInfo, error) {
-
-	line := raw[15:]
+	line := strings.TrimSpace(raw)[15:]
 	index := strings.Index(line, " file=/")
 	lengthString := line[0:index]
 	length, err := strconv.ParseUint(lengthString, 10, 64)
@@ -1111,11 +1110,12 @@ func (c *Client) parseFileInfo(ctx context.Context, raw string, parseFavoriteKey
 				}
 			case partsByEqual[0] == "xattrv":
 				attrs[previousXAttr] = partsByEqual[1]
-				previousXAttr = ""
 			default:
+				previousXAttr = ""
 				kv[partsByEqual[0]] = partsByEqual[1]
-
 			}
+		} else if previousXAttr != "" {
+			attrs[previousXAttr] = attrs[previousXAttr] + " " + p
 		}
 	}
 	fi, err := c.mapToFileInfo(ctx, kv, attrs, parseFavoriteKey)
