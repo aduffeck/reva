@@ -301,6 +301,10 @@ func (fs *eosfs) fileinfoToSpace(ctx context.Context, fi *eosclient.FileInfo) (*
 					Decoder: "plain",
 					Value:   []byte("project/" + spaceName),
 				},
+				"description": {
+					Decoder: "plain",
+					Value:   []byte(fi.Attrs["user."+SpaceDescriptionAttr]),
+				},
 				"grants": {
 					Decoder: "json",
 					Value:   grantMapJSON,
@@ -313,8 +317,7 @@ func (fs *eosfs) fileinfoToSpace(ctx context.Context, fi *eosclient.FileInfo) (*
 		},
 	}
 
-	spaceImage, ok := fi.Attrs["user."+SpaceImageAttr]
-	if ok {
+	if spaceImage, ok := fi.Attrs["user."+SpaceImageAttr]; ok {
 		space.Opaque = utils.AppendPlainToOpaque(space.Opaque, "image", storagespace.FormatResourceID(
 			provider.ResourceId{StorageId: space.Root.StorageId, SpaceId: space.Root.SpaceId, OpaqueId: spaceImage},
 		))
@@ -558,6 +561,13 @@ func (fs *eosfs) createOrUpdateSpace(ctx context.Context, space *provider.Storag
 				Type: UserAttr,
 				Key:  SpaceImageAttr,
 				Val:  imageID.OpaqueId,
+			})
+		}
+		if description := utils.ReadPlainFromOpaque(space.Opaque, "description"); description != "" {
+			attrs = append(attrs, &eosclient.Attribute{
+				Type: UserAttr,
+				Key:  SpaceDescriptionAttr,
+				Val:  description,
 			})
 		}
 	}
