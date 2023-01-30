@@ -276,6 +276,11 @@ func (fs *eosfs) fileinfoToSpace(ctx context.Context, fi *eosclient.FileInfo) (*
 		return nil, err
 	}
 
+	rootInfo, err := fs.convertToResourceInfo(ctx, fi, sid, false)
+	if err != nil {
+		return nil, err
+	}
+
 	spaceName := fi.Attrs["user."+SpaceNameAttr]
 	spaceType := fi.Attrs["user."+SpaceTypeAttr]
 	space := &provider.StorageSpace{
@@ -287,6 +292,7 @@ func (fs *eosfs) fileinfoToSpace(ctx context.Context, fi *eosclient.FileInfo) (*
 			SpaceId:  sid,
 			OpaqueId: sid,
 		},
+		RootInfo: rootInfo,
 		Mtime: &types.Timestamp{
 			Seconds: fi.MTimeSec,
 			Nanos:   fi.MTimeNanos,
@@ -710,6 +716,19 @@ func (fs *eosfs) DeleteStorageSpace(ctx context.Context, req *provider.DeleteSto
 	eosFileInfo, err := fs.c.GetFileInfoByInode(ctx, rootAuth, inode)
 	if err != nil {
 		return err
+	}
+
+	owner, err := fs.getUserIDGateway(ctx, strconv.FormatUint(eosFileInfo.UID, 10))
+	if err != nil {
+		return err
+	}
+
+	perms := fs.permissionSet(ctx, eosFileInfo, owner)
+	if !perms.RemoveGrant { // Deactivating/purging spaces is limited to the manager role (which is mapped to the RemoveGrant permission)
+		if perms.Stat {
+			return errtypes.PermissionDenied(fmt.Sprintf("not enough permissions to delete space %s", spaceID))
+		}
+		return errtypes.NotFound(fmt.Sprintf("space %s not found", spaceID))
 	}
 
 	if req.Opaque != nil {
