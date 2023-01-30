@@ -354,7 +354,11 @@ func (fs *eosfs) listProjectStorageSpaces(ctx context.Context, user *userpb.User
 			}
 		}
 		for _, fi := range fis {
-			spaceIDs[path.Base(fi.File)] = struct{}{}
+			base := path.Base(fi.File)
+			if hiddenReg.MatchString(base) { // Do not treat hidden files/folders as space references
+				continue
+			}
+			spaceIDs[base] = struct{}{}
 		}
 
 		// Collect group spaces
@@ -370,6 +374,10 @@ func (fs *eosfs) listProjectStorageSpaces(ctx context.Context, user *userpb.User
 				}
 			}
 			for _, fi := range fis {
+				base := path.Base(fi.File)
+				if hiddenReg.MatchString(base) { // Do not treat hidden files/folders as space references
+					continue
+				}
 				spaceIDs[path.Base(fi.File)] = struct{}{}
 			}
 		}
