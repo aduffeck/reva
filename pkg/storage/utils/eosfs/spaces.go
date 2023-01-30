@@ -335,6 +335,10 @@ func (fs *eosfs) listProjectStorageSpaces(ctx context.Context, user *userpb.User
 	if err != nil {
 		return nil, err
 	}
+	auth, err := fs.getUIDGateway(ctx, user.Id)
+	if err != nil {
+		return nil, err
+	}
 
 	if spaceID != "" {
 		spaceIDs[spaceID] = struct{}{}
@@ -361,7 +365,7 @@ func (fs *eosfs) listProjectStorageSpaces(ctx context.Context, user *userpb.User
 			log.Error().Err(err).Str("spaceid", id).Msgf("eosfs: invalid space id")
 			continue
 		}
-		fi, err := fs.c.GetFileInfoByInode(ctx, rootAuth, spaceid)
+		fi, err := fs.c.GetFileInfoByInode(ctx, auth, spaceid)
 		if err != nil {
 			log.Error().Err(err).Uint64("spaceid", spaceid).Msgf("eosfs: error statting storage space")
 			continue
