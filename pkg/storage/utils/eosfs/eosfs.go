@@ -990,6 +990,11 @@ func (fs *eosfs) AddGrant(ctx context.Context, ref *provider.Reference, g *provi
 		if err != nil {
 			return err
 		}
+	} else if g.Grantee.Type == provider.GranteeType_GRANTEE_TYPE_GROUP {
+		err = fs.linkIndex(ctx, "group", g.GetGrantee().GetGroupId().GetOpaqueId(), space.Id.OpaqueId, space.RootInfo.Path)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 
@@ -1115,6 +1120,11 @@ func (fs *eosfs) RemoveGrant(ctx context.Context, ref *provider.Reference, g *pr
 	// update the indexes only after successfully setting the grant
 	if g.Grantee.Type == provider.GranteeType_GRANTEE_TYPE_USER {
 		err = fs.unlinkIndex(ctx, "user", g.GetGrantee().GetUserId().GetOpaqueId(), space.Id.OpaqueId)
+		if err != nil {
+			return err
+		}
+	} else if g.Grantee.Type == provider.GranteeType_GRANTEE_TYPE_GROUP {
+		err = fs.unlinkIndex(ctx, "group", g.GetGrantee().GetGroupId().GetOpaqueId(), space.Id.OpaqueId)
 		if err != nil {
 			return err
 		}
