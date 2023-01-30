@@ -52,6 +52,7 @@ const (
 	spaceTypeProject  = "project"
 
 	OcisPrefix           = "ocis."
+	SpaceStatusAttr      = OcisPrefix + "space.status"
 	SpaceNameAttr        = OcisPrefix + "space.name"
 	SpaceTypeAttr        = OcisPrefix + "space.type"
 	SpaceDescriptionAttr = OcisPrefix + "space.description"
@@ -322,6 +323,11 @@ func (fs *eosfs) fileinfoToSpace(ctx context.Context, fi *eosclient.FileInfo) (*
 			provider.ResourceId{StorageId: space.Root.StorageId, SpaceId: space.Root.SpaceId, OpaqueId: spaceImage},
 		))
 	}
+
+	// Set disabled status
+	if fi.Attrs["user."+SpaceStatusAttr] == "disabled" {
+		space.Opaque = utils.AppendPlainToOpaque(space.Opaque, "trashed", "trashed")
+	}
 	return space, nil
 }
 
@@ -541,6 +547,11 @@ func (fs *eosfs) createOrUpdateSpace(ctx context.Context, space *provider.Storag
 				Key:  SpaceTypeAttr,
 				Val:  space.SpaceType,
 			},
+			{
+				Type: UserAttr,
+				Key:  SpaceStatusAttr,
+				Val:  "active",
+			},
 		}
 
 		for _, attr := range attrs {
@@ -651,6 +662,25 @@ func (fs *eosfs) UpdateStorageSpace(ctx context.Context, req *provider.UpdateSto
 		return nil, err
 	}
 
+	// Restore disabled spaces
+	if req.Opaque != nil {
+		_, restore := req.Opaque.Map["restore"]
+		if restore {
+			rootAuth, err := fs.getRootAuth(ctx)
+			if err != nil {
+				return nil, err
+			}
+			err = fs.c.SetAttr(ctx, rootAuth, &eosclient.Attribute{
+				Type: UserAttr,
+				Key:  SpaceStatusAttr,
+				Val:  "active",
+			}, false, false, eosFileInfo.File)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+
 	space, err := fs.createOrUpdateSpace(ctx, req.StorageSpace, eosFileInfo.File, &userpb.User{Id: owner})
 	if err != nil {
 		return nil, err
@@ -662,7 +692,42 @@ func (fs *eosfs) UpdateStorageSpace(ctx context.Context, req *provider.UpdateSto
 }
 
 func (fs *eosfs) DeleteStorageSpace(ctx context.Context, req *provider.DeleteStorageSpaceRequest) error {
-	return errtypes.NotSupported("delete storage spaces")
+	_, spaceID, _, err := storagespace.SplitID(req.Id.GetOpaqueId())
+	if err != nil {
+		return err
+	}
+
+	rootAuth, err := fs.getRootAuth(ctx)
+	if err != nil {
+		return err
+	}
+
+	inode, err := strconv.ParseUint(spaceID, 10, 64)
+	if err != nil {
+		return err
+	}
+
+	eosFileInfo, err := fs.c.GetFileInfoByInode(ctx, rootAuth, inode)
+	if err != nil {
+		return err
+	}
+
+	if req.Opaque != nil {
+		_, purge := req.Opaque.Map["purge"]
+		if purge {
+			if eosFileInfo.Attrs["user."+SpaceStatusAttr] != "disabled" {
+				return errtypes.NewErrtypeFromStatus(status.NewInvalid(ctx, "can't purge enabled space"))
+			}
+
+			return fs.c.Remove(ctx, rootAuth, eosFileInfo.File, true)
+		}
+	}
+
+	return fs.c.SetAttr(ctx, rootAuth, &eosclient.Attribute{
+		Type: UserAttr,
+		Key:  SpaceStatusAttr,
+		Val:  "disabled",
+	}, false, false, eosFileInfo.File)
 }
 
 func (fs *eosfs) unlinkIndex(ctx context.Context, index, value, id string) error {
