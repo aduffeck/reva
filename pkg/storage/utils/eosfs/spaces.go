@@ -719,6 +719,22 @@ func (fs *eosfs) DeleteStorageSpace(ctx context.Context, req *provider.DeleteSto
 				return errtypes.NewErrtypeFromStatus(status.NewInvalid(ctx, "can't purge enabled space"))
 			}
 
+			// remove from indexes
+			for _, g := range eosFileInfo.SysACL.Entries {
+				switch g.Type {
+				case acl.TypeGroup:
+					fs.unlinkIndex(ctx, "group", g.Qualifier, spaceID)
+				case acl.TypeUser:
+					grantee, err := fs.getUserIDGateway(ctx, g.Qualifier)
+					if err != nil {
+						continue
+					}
+					fs.unlinkIndex(ctx, "user", grantee.OpaqueId, spaceID)
+				default:
+					continue
+				}
+			}
+
 			return fs.c.Remove(ctx, rootAuth, eosFileInfo.File, true)
 		}
 	}
