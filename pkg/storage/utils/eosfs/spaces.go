@@ -798,7 +798,7 @@ func (fs *eosfs) linkIndex(ctx context.Context, index, value, id, target string)
 	if err != nil {
 		return err
 	}
-	err = fs.c.Symlink(ctx, rootAuth, target, indexPath)
+	err = fs.c.Touch(ctx, rootAuth, indexPath)
 	if err != nil {
 		if _, ok := errors.Cause(err).(errtypes.AlreadyExists); ok {
 			// ignore. there are no spaces linked to this user yet
@@ -808,7 +808,7 @@ func (fs *eosfs) linkIndex(ctx context.Context, index, value, id, target string)
 			if err != nil {
 				return err
 			}
-			return fs.c.Symlink(ctx, rootAuth, target, indexPath)
+			return fs.c.Touch(ctx, rootAuth, indexPath)
 		}
 	}
 	return nil
