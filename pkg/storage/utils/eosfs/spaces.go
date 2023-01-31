@@ -668,22 +668,38 @@ func (fs *eosfs) UpdateStorageSpace(ctx context.Context, req *provider.UpdateSto
 		return nil, err
 	}
 
+	restore := false
 	// Restore disabled spaces
 	if req.Opaque != nil {
-		_, restore := req.Opaque.Map["restore"]
-		if restore {
-			rootAuth, err := fs.getRootAuth(ctx)
-			if err != nil {
-				return nil, err
-			}
-			err = fs.c.SetAttr(ctx, rootAuth, &eosclient.Attribute{
-				Type: UserAttr,
-				Key:  SpaceStatusAttr,
-				Val:  "active",
-			}, false, false, eosFileInfo.File)
-			if err != nil {
-				return nil, err
-			}
+		_, restore = req.Opaque.Map["restore"]
+	}
+
+	perms := fs.permissionSet(ctx, eosFileInfo, owner)
+	if (restore || req.StorageSpace.Name != "" || utils.ReadPlainFromOpaque(req.StorageSpace.Opaque, "description") != "") && !perms.RemoveGrant {
+		if perms.Stat {
+			return nil, errtypes.PermissionDenied(fmt.Sprintf("not enough permissions to alter space %s", id.SpaceId))
+		}
+		return nil, errtypes.NotFound(fmt.Sprintf("space %s not found", id.SpaceId))
+	}
+	if utils.ReadPlainFromOpaque(req.StorageSpace.Opaque, "image") != "" && !perms.InitiateFileUpload {
+		if perms.Stat {
+			return nil, errtypes.PermissionDenied(fmt.Sprintf("not enough permissions to alter space %s", id.SpaceId))
+		}
+		return nil, errtypes.NotFound(fmt.Sprintf("space %s not found", id.SpaceId))
+	}
+
+	if restore {
+		rootAuth, err := fs.getRootAuth(ctx)
+		if err != nil {
+			return nil, err
+		}
+		err = fs.c.SetAttr(ctx, rootAuth, &eosclient.Attribute{
+			Type: UserAttr,
+			Key:  SpaceStatusAttr,
+			Val:  "active",
+		}, false, false, eosFileInfo.File)
+		if err != nil {
+			return nil, err
 		}
 	}
 
