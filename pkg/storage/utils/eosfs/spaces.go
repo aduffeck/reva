@@ -675,12 +675,14 @@ func (fs *eosfs) UpdateStorageSpace(ctx context.Context, req *provider.UpdateSto
 	}
 
 	perms := fs.permissionSet(ctx, eosFileInfo, owner)
+	// Changing name/description requires manager role (mapped to the RemoveGrant permission)
 	if (restore || req.StorageSpace.Name != "" || utils.ReadPlainFromOpaque(req.StorageSpace.Opaque, "description") != "") && !perms.RemoveGrant {
 		if perms.Stat {
 			return nil, errtypes.PermissionDenied(fmt.Sprintf("not enough permissions to alter space %s", id.SpaceId))
 		}
 		return nil, errtypes.NotFound(fmt.Sprintf("space %s not found", id.SpaceId))
 	}
+	// Changing name/description requires editor role (mapped to the InitiateFileUpload permission)
 	if utils.ReadPlainFromOpaque(req.StorageSpace.Opaque, "image") != "" && !perms.InitiateFileUpload {
 		if perms.Stat {
 			return nil, errtypes.PermissionDenied(fmt.Sprintf("not enough permissions to alter space %s", id.SpaceId))
