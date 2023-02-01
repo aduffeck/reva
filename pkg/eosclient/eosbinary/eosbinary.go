@@ -422,15 +422,17 @@ func (c *Client) GetFileInfoByInode(ctx context.Context, auth eosclient.Authoriz
 		return nil, err
 	}
 
+	var versionInfo *eosclient.FileInfo
 	if c.opt.VersionInvariant && isVersionFolder(info.File) {
-		info, err = c.getFileInfoFromVersion(ctx, auth, info.File)
+		versionInfo = info
+		info, err = c.getFileInfoFromVersion(ctx, auth, info)
 		if err != nil {
 			return nil, err
 		}
 		info.Inode = inode
 	}
 
-	return c.mergeACLsAndAttrsForFiles(ctx, auth, info), nil
+	return c.mergeACLsAndAttrsForFiles(ctx, auth, info, versionInfo), nil
 }
 
 // GetFileInfoByFXID returns the FileInfo by the given file id in hexadecimal
@@ -446,28 +448,24 @@ func (c *Client) GetFileInfoByFXID(ctx context.Context, auth eosclient.Authoriza
 		return nil, err
 	}
 
-	return c.mergeACLsAndAttrsForFiles(ctx, auth, info), nil
+	return c.mergeACLsAndAttrsForFiles(ctx, auth, info, nil), nil
 }
 
 // GetFileInfoByPath returns the FilInfo at the given path
 func (c *Client) GetFileInfoByPath(ctx context.Context, auth eosclient.Authorization, path string) (*eosclient.FileInfo, error) {
-	args := []string{"file", "info", path, "-m"}
-	stdout, _, err := c.executeEOS(ctx, args, auth)
-	if err != nil {
-		return nil, err
-	}
-	info, err := c.parseFileInfo(ctx, stdout, true)
+	info, err := c.getRawFileInfoByPath(ctx, auth, path)
 	if err != nil {
 		return nil, err
 	}
 
+	var versionInfo *eosclient.FileInfo
 	if c.opt.VersionInvariant && !isVersionFolder(path) && !info.IsDir {
-		if inode, err := c.getVersionFolderInode(ctx, auth, info); err == nil {
-			info.Inode = inode
+		if versionInfo, err = c.getVersionFolderInfo(ctx, auth, info); err == nil {
+			info.Inode = versionInfo.Inode
 		}
 	}
 
-	return c.mergeACLsAndAttrsForFiles(ctx, auth, info), nil
+	return c.mergeACLsAndAttrsForFiles(ctx, auth, info, versionInfo), nil
 }
 
 func (c *Client) getRawFileInfoByPath(ctx context.Context, auth eosclient.Authorization, path string) (*eosclient.FileInfo, error) {
@@ -479,7 +477,7 @@ func (c *Client) getRawFileInfoByPath(ctx context.Context, auth eosclient.Author
 	return c.parseFileInfo(ctx, stdout, false)
 }
 
-func (c *Client) mergeACLsAndAttrsForFiles(ctx context.Context, auth eosclient.Authorization, info *eosclient.FileInfo) *eosclient.FileInfo {
+func (c *Client) mergeACLsAndAttrsForFiles(ctx context.Context, auth eosclient.Authorization, info, versionInfo *eosclient.FileInfo) *eosclient.FileInfo {
 	// We need to inherit the ACLs for the parent directory as these are not available for files
 	// And the attributes from the version folders
 	if !info.IsDir {
@@ -490,10 +488,12 @@ func (c *Client) mergeACLsAndAttrsForFiles(ctx context.Context, auth eosclient.A
 		}
 
 		// We need to merge attrs set for the version folders, so get those resolved for the current user
-		versionFolderInfo, err := c.GetFileInfoByPath(ctx, auth, getVersionFolder(info.File))
-		if err == nil {
-			info.SysACL.Entries = append(info.SysACL.Entries, versionFolderInfo.SysACL.Entries...)
-			for k, v := range versionFolderInfo.Attrs {
+		if versionInfo == nil {
+			versionInfo, _ = c.GetFileInfoByPath(ctx, auth, getVersionFolder(info.File))
+		}
+		if versionInfo != nil {
+			info.SysACL.Entries = append(info.SysACL.Entries, versionInfo.SysACL.Entries...)
+			for k, v := range versionInfo.Attrs {
 				info.Attrs[k] = v
 			}
 		}
@@ -863,7 +863,7 @@ func (c *Client) GenerateToken(ctx context.Context, auth eosclient.Authorization
 	return stdout, err
 }
 
-func (c *Client) getVersionFolderInode(ctx context.Context, auth eosclient.Authorization, info *eosclient.FileInfo) (uint64, error) {
+func (c *Client) getVersionFolderInfo(ctx context.Context, auth eosclient.Authorization, info *eosclient.FileInfo) (*eosclient.FileInfo, error) {
 	versionFolder := getVersionFolder(info.File)
 	md, err := c.getRawFileInfoByPath(ctx, auth, versionFolder)
 	if err != nil {
@@ -875,23 +875,23 @@ func (c *Client) getVersionFolderInode(ctx context.Context, auth eosclient.Autho
 			},
 		}
 		if err = c.CreateDir(ctx, createAuth, versionFolder); err != nil {
-			return 0, err
+			return nil, err
 		}
 		md, err = c.getRawFileInfoByPath(ctx, auth, versionFolder)
 		if err != nil {
-			return 0, err
+			return nil, err
 		}
 	}
-	return md.Inode, nil
+	return md, nil
 }
 
-func (c *Client) getFileInfoFromVersion(ctx context.Context, auth eosclient.Authorization, p string) (*eosclient.FileInfo, error) {
-	file := getFileFromVersionFolder(p)
-	md, err := c.GetFileInfoByPath(ctx, auth, file)
+func (c *Client) getFileInfoFromVersion(ctx context.Context, auth eosclient.Authorization, versionInfo *eosclient.FileInfo) (*eosclient.FileInfo, error) {
+	info, err := c.getRawFileInfoByPath(ctx, auth, getFileFromVersionFolder(versionInfo.File))
 	if err != nil {
 		return nil, err
 	}
-	return md, nil
+	info.Inode = versionInfo.Inode
+	return info, nil
 }
 
 func isVersionFolder(p string) bool {
