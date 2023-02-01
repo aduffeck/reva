@@ -281,8 +281,8 @@ func (fs *eosfs) fileinfoToSpace(ctx context.Context, fi *eosclient.FileInfo) (*
 		return nil, err
 	}
 
-	spaceName := fi.Attrs["user."+SpaceNameAttr]
-	spaceType := fi.Attrs["user."+SpaceTypeAttr]
+	spaceName := fi.Attrs[SpaceNameAttr]
+	spaceType := fi.Attrs[SpaceTypeAttr]
 	space := &provider.StorageSpace{
 		Id:        &provider.StorageSpaceId{OpaqueId: ssID},
 		SpaceType: spaceType,
@@ -310,7 +310,7 @@ func (fs *eosfs) fileinfoToSpace(ctx context.Context, fi *eosclient.FileInfo) (*
 				},
 				"description": {
 					Decoder: "plain",
-					Value:   []byte(fi.Attrs["user."+SpaceDescriptionAttr]),
+					Value:   []byte(fi.Attrs[SpaceDescriptionAttr]),
 				},
 				"grants": {
 					Decoder: "json",
@@ -324,20 +324,20 @@ func (fs *eosfs) fileinfoToSpace(ctx context.Context, fi *eosclient.FileInfo) (*
 		},
 	}
 
-	if spaceImage, ok := fi.Attrs["user."+SpaceImageAttr]; ok {
+	if spaceImage, ok := fi.Attrs[SpaceImageAttr]; ok {
 		space.Opaque = utils.AppendPlainToOpaque(space.Opaque, "image", storagespace.FormatResourceID(
 			provider.ResourceId{StorageId: space.Root.StorageId, SpaceId: space.Root.SpaceId, OpaqueId: spaceImage},
 		))
 	}
 
-	if readme, ok := fi.Attrs["user."+SpaceReadmeAttr]; ok {
+	if readme, ok := fi.Attrs[SpaceReadmeAttr]; ok {
 		space.Opaque = utils.AppendPlainToOpaque(space.Opaque, "readme", storagespace.FormatResourceID(
 			provider.ResourceId{StorageId: space.Root.StorageId, SpaceId: space.Root.SpaceId, OpaqueId: readme},
 		))
 	}
 
 	// Set disabled status
-	if fi.Attrs["user."+SpaceStatusAttr] == "disabled" {
+	if fi.Attrs[SpaceStatusAttr] == "disabled" {
 		space.Opaque = utils.AppendPlainToOpaque(space.Opaque, "trashed", "trashed")
 	}
 	return space, nil
@@ -769,7 +769,7 @@ func (fs *eosfs) DeleteStorageSpace(ctx context.Context, req *provider.DeleteSto
 	if req.Opaque != nil {
 		_, purge := req.Opaque.Map["purge"]
 		if purge {
-			if eosFileInfo.Attrs["user."+SpaceStatusAttr] != "disabled" {
+			if eosFileInfo.Attrs[SpaceStatusAttr] != "disabled" {
 				return errtypes.NewErrtypeFromStatus(status.NewInvalid(ctx, "can't purge enabled space"))
 			}
 
