@@ -330,6 +330,12 @@ func (fs *eosfs) fileinfoToSpace(ctx context.Context, fi *eosclient.FileInfo) (*
 		))
 	}
 
+	if readme, ok := fi.Attrs["user."+SpaceReadmeAttr]; ok {
+		space.Opaque = utils.AppendPlainToOpaque(space.Opaque, "readme", storagespace.FormatResourceID(
+			provider.ResourceId{StorageId: space.Root.StorageId, SpaceId: space.Root.SpaceId, OpaqueId: readme},
+		))
+	}
+
 	// Set disabled status
 	if fi.Attrs["user."+SpaceStatusAttr] == "disabled" {
 		space.Opaque = utils.AppendPlainToOpaque(space.Opaque, "trashed", "trashed")
@@ -609,6 +615,17 @@ func (fs *eosfs) createOrUpdateSpace(ctx context.Context, space *provider.Storag
 				Val:  imageID.OpaqueId,
 			})
 		}
+		if readme := utils.ReadPlainFromOpaque(space.Opaque, "readme"); readme != "" {
+			readmeID, err := storagespace.ParseID(readme)
+			if err != nil {
+				return nil, errors.Wrap(err, "eosfs: error parsing the image id")
+			}
+			attrs = append(attrs, &eosclient.Attribute{
+				Type: UserAttr,
+				Key:  SpaceReadmeAttr,
+				Val:  readmeID.OpaqueId,
+			})
+		}
 		if description := utils.ReadPlainFromOpaque(space.Opaque, "description"); description != "" {
 			attrs = append(attrs, &eosclient.Attribute{
 				Type: UserAttr,
@@ -683,7 +700,7 @@ func (fs *eosfs) UpdateStorageSpace(ctx context.Context, req *provider.UpdateSto
 		return nil, errtypes.NotFound(fmt.Sprintf("space %s not found", id.SpaceId))
 	}
 	// Changing name/description requires editor role (mapped to the InitiateFileUpload permission)
-	if utils.ReadPlainFromOpaque(req.StorageSpace.Opaque, "image") != "" && !perms.InitiateFileUpload {
+	if (utils.ReadPlainFromOpaque(req.StorageSpace.Opaque, "image") != "" || utils.ReadPlainFromOpaque(req.StorageSpace.Opaque, "readme") != "") && !perms.InitiateFileUpload {
 		if perms.Stat {
 			return nil, errtypes.PermissionDenied(fmt.Sprintf("not enough permissions to alter space %s", id.SpaceId))
 		}
