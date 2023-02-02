@@ -89,7 +89,7 @@ func (fs *eosfs) Upload(ctx context.Context, ref *provider.Reference, r io.ReadC
 
 // InitiateUpload returns upload ids corresponding to different protocols it supports
 func (fs *eosfs) InitiateUpload(ctx context.Context, ref *provider.Reference, uploadLength int64, metadata map[string]string) (map[string]string, error) {
-	space, err := fs.resolveSpace(ctx, ref)
+	spaceRoot, owner, err := fs.resolveSpace(ctx, ref)
 	if err != nil {
 		return nil, err
 	}
@@ -97,7 +97,7 @@ func (fs *eosfs) InitiateUpload(ctx context.Context, ref *provider.Reference, up
 	if err != nil {
 		return nil, errors.Wrap(err, "eos: error resolving reference")
 	}
-	spacePath := strings.TrimPrefix(resPath, space.RootInfo.Path)
+	spacePath := strings.TrimPrefix(resPath, spaceRoot)
 	fid, err := strconv.ParseUint(ref.GetResourceId().GetOpaqueId(), 10, 64)
 	if err != nil {
 		return nil, fmt.Errorf("error converting string to int for eos fileid: %s", ref.GetResourceId().GetOpaqueId())
@@ -127,8 +127,8 @@ func (fs *eosfs) InitiateUpload(ctx context.Context, ref *provider.Reference, up
 			"GID":                 strconv.FormatUint(parentInfo.GID, 10),
 			"StoragePath":         resPath,
 			"SpacePath":           spacePath,
-			"SpaceRoot":           space.Id.OpaqueId,
-			"SpaceOwnerOrManager": space.Owner.GetId().GetOpaqueId(),
+			"SpaceRoot":           spacePath,
+			"SpaceOwnerOrManager": owner.GetId().GetOpaqueId(),
 		},
 	}
 

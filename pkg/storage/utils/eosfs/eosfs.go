@@ -335,11 +335,11 @@ func (fs *eosfs) resolveRefAndGetAuth(ctx context.Context, ref *provider.Referen
 		return "", eosclient.Authorization{}, errors.Wrap(err, "eosfs: error resolving reference")
 	}
 
-	s, err := fs.resolveSpace(ctx, ref)
+	_, owner, err := fs.resolveSpace(ctx, ref)
 	if err != nil {
 		return "", eosclient.Authorization{}, errors.Wrap(err, "eosfs: could not resolve space")
 	}
-	auth, err := fs.getUserAuth(ctx, s.Owner, fn)
+	auth, err := fs.getUserAuth(ctx, owner, fn)
 	if err != nil {
 		return "", eosclient.Authorization{}, err
 	}
@@ -364,58 +364,28 @@ func (fs *eosfs) resolve(ctx context.Context, ref *provider.Reference) (string, 
 	}
 }
 
-func (fs *eosfs) resolveSpace(ctx context.Context, ref *provider.Reference) (*provider.StorageSpace, error) {
-	sublog := appctx.GetLogger(ctx).With().Logger()
-
+func (fs *eosfs) resolveSpace(ctx context.Context, ref *provider.Reference) (string, *userpb.User, error) {
 	spaceID := ref.GetResourceId().GetSpaceId()
-	if s, err := fs.spacesCache.Get(spaceID); err == nil {
-		return s.(*provider.StorageSpace), nil
-	}
-
 	fid, err := strconv.ParseUint(spaceID, 10, 64)
 	if err != nil {
-		return nil, errors.Wrap(err, "eosfs: error parsing spaceid string")
+		return "", nil, errors.Wrap(err, "eosfs: error parsing spaceid string")
 	}
 	auth, err := fs.getRootAuth(ctx)
 	if err != nil {
-		return nil, err
+		return "", nil, err
 	}
 
 	info, err := fs.c.GetFileInfoByInode(ctx, auth, fid)
 	if err != nil {
-		return nil, err
-	}
-	owner, err := fs.getUserGateway(ctx, strconv.FormatUint(info.UID, 10))
-	if err != nil {
-		sublog.Warn().Uint64("uid", info.UID).Msg("could not lookup userid, leaving empty")
+		return "", nil, err
 	}
 
-	s := &provider.StorageSpace{
-		Id: &provider.StorageSpaceId{
-			OpaqueId: spaceID,
-		},
-		Owner: owner,
-		Root: &provider.ResourceId{
-			SpaceId:  spaceID,
-			OpaqueId: spaceID,
-		},
-		RootInfo: &provider.ResourceInfo{
-			Id: &provider.ResourceId{
-				SpaceId:  spaceID,
-				OpaqueId: spaceID,
-			},
-			Path:  info.File,
-			Name:  path.Base(info.File),
-			Owner: owner.Id,
-			Etag:  fmt.Sprintf("\"%s\"", strings.Trim(info.ETag, "\"")),
-			Size:  info.TreeSize,
-		},
-	}
-	err = fs.spacesCache.Set(spaceID, s)
+	owner, err := fs.getUserGateway(ctx, strconv.FormatUint(info.UID, 10))
 	if err != nil {
-		sublog.Warn().Str("spaceID", spaceID).Msg("could not store space in cache")
+		return "", nil, err
 	}
-	return s, nil
+
+	return info.File, owner, nil
 }
 
 func (fs *eosfs) getPath(ctx context.Context, id *provider.ResourceId) (string, error) {
@@ -448,13 +418,12 @@ func (fs *eosfs) GetPathByID(ctx context.Context, id *provider.ResourceId) (stri
 		return "", errors.Wrap(err, "eosfs: no user in ctx")
 	}
 
-	space, err := fs.resolveSpace(ctx, &provider.Reference{
+	trim, _, err := fs.resolveSpace(ctx, &provider.Reference{
 		ResourceId: &provider.ResourceId{SpaceId: id.GetSpaceId()},
 	})
 	if err != nil {
 		return "", err
 	}
-	trim := space.RootInfo.Path
 
 	var auth eosclient.Authorization
 	if u.Id.Type == userpb.UserType_USER_TYPE_LIGHTWEIGHT || u.Id.Type == userpb.UserType_USER_TYPE_FEDERATED {
@@ -980,18 +949,18 @@ func (fs *eosfs) AddGrant(ctx context.Context, ref *provider.Reference, g *provi
 		return errors.Wrap(err, "eosfs: error adding acl")
 	}
 
-	space, err := fs.resolveSpace(ctx, ref)
+	path, _, err := fs.resolveSpace(ctx, ref)
 	if err != nil {
 		return err
 	}
 	// update the indexes only after successfully setting the grant
 	if g.Grantee.Type == provider.GranteeType_GRANTEE_TYPE_USER {
-		err = fs.linkIndex(ctx, "user", g.GetGrantee().GetUserId().GetOpaqueId(), space.Id.OpaqueId, space.RootInfo.Path)
+		err = fs.linkIndex(ctx, "user", g.GetGrantee().GetUserId().GetOpaqueId(), ref.ResourceId.SpaceId, path)
 		if err != nil {
 			return err
 		}
 	} else if g.Grantee.Type == provider.GranteeType_GRANTEE_TYPE_GROUP {
-		err = fs.linkIndex(ctx, "group", g.GetGrantee().GetGroupId().GetOpaqueId(), space.Id.OpaqueId, space.RootInfo.Path)
+		err = fs.linkIndex(ctx, "group", g.GetGrantee().GetGroupId().GetOpaqueId(), ref.ResourceId.SpaceId, path)
 		if err != nil {
 			return err
 		}
@@ -1113,18 +1082,14 @@ func (fs *eosfs) RemoveGrant(ctx context.Context, ref *provider.Reference, g *pr
 		return errors.Wrap(err, "eosfs: error removing acl")
 	}
 
-	space, err := fs.resolveSpace(ctx, ref)
-	if err != nil {
-		return err
-	}
 	// update the indexes only after successfully setting the grant
 	if g.Grantee.Type == provider.GranteeType_GRANTEE_TYPE_USER {
-		err = fs.unlinkIndex(ctx, "user", g.GetGrantee().GetUserId().GetOpaqueId(), space.Id.OpaqueId)
+		err = fs.unlinkIndex(ctx, "user", g.GetGrantee().GetUserId().GetOpaqueId(), ref.ResourceId.SpaceId)
 		if err != nil {
 			return err
 		}
 	} else if g.Grantee.Type == provider.GranteeType_GRANTEE_TYPE_GROUP {
-		err = fs.unlinkIndex(ctx, "group", g.GetGrantee().GetGroupId().GetOpaqueId(), space.Id.OpaqueId)
+		err = fs.unlinkIndex(ctx, "group", g.GetGrantee().GetGroupId().GetOpaqueId(), ref.ResourceId.SpaceId)
 		if err != nil {
 			return err
 		}
@@ -1230,7 +1195,16 @@ func (fs *eosfs) GetMD(ctx context.Context, ref *provider.Reference, mdKeys []st
 		return nil, err
 	}
 
-	space, err := fs.resolveSpace(ctx, ref)
+	// Get space information
+	spaceId, err := strconv.ParseUint(ref.ResourceId.GetSpaceId(), 10, 64)
+	if err != nil {
+		return nil, err
+	}
+	spaceInfo, err := fs.c.GetFileInfoByInode(ctx, auth, spaceId)
+	if err != nil {
+		return nil, err
+	}
+	space, err := fs.fileinfoToSpace(ctx, spaceInfo)
 	if err != nil {
 		return nil, err
 	}
@@ -1344,13 +1318,13 @@ func (fs *eosfs) CreateDir(ctx context.Context, ref *provider.Reference) error {
 		return errors.Wrap(err, "eosfs: error resolving reference")
 	}
 
-	s, err := fs.resolveSpace(ctx, ref)
+	_, owner, err := fs.resolveSpace(ctx, ref)
 	if err != nil {
 		return errors.Wrap(err, "eosfs: could not resolve space")
 	}
 	// We need the auth corresponding to the parent directory
 	// as the file might not exist at the moment
-	auth, err := fs.getUserAuth(ctx, s.Owner, path.Dir(fn))
+	auth, err := fs.getUserAuth(ctx, owner, path.Dir(fn))
 	if err != nil {
 		return err
 	}
@@ -1673,13 +1647,12 @@ func (fs *eosfs) convertToRevision(ctx context.Context, eosFileInfo *eosclient.F
 func (fs *eosfs) convertToResourceInfo(ctx context.Context, eosFileInfo *eosclient.FileInfo, spaceID string, returnBasename bool) (*provider.ResourceInfo, error) {
 	fn := ""
 	if spaceID != "" {
-		space, err := fs.resolveSpace(ctx, &provider.Reference{
+		trim, _, err := fs.resolveSpace(ctx, &provider.Reference{
 			ResourceId: &provider.ResourceId{SpaceId: spaceID},
 		})
 		if err != nil {
 			return nil, err
 		}
-		trim := space.RootInfo.Path
 
 		fn = eosFileInfo.File
 		switch {
