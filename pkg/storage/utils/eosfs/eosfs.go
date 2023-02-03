@@ -1508,7 +1508,36 @@ func (fs *eosfs) RestoreRevision(ctx context.Context, ref *provider.Reference, r
 }
 
 func (fs *eosfs) PurgeRecycleItem(ctx context.Context, ref *provider.Reference, key, relativePath string) error {
-	return errtypes.NotSupported("eosfs: operation not supported")
+	u, err := getUser(ctx)
+	if err != nil {
+		return errors.Wrap(err, "eosfs: no user in ctx")
+	}
+	auth, err := fs.getUserAuth(ctx, u, "")
+	if err != nil {
+		return err
+	}
+
+	spaceRootInode, err := strconv.ParseUint(ref.ResourceId.SpaceId, 10, 64)
+	if err != nil {
+		return err
+	}
+	spaceRootFileInfo, err := fs.c.GetFileInfoByInode(ctx, auth, spaceRootInode)
+	if err != nil {
+		return err
+	}
+	spaceRootInfo, err := fs.convertToResourceInfo(ctx, spaceRootFileInfo, ref.ResourceId.SpaceId, true)
+	if err != nil {
+		return err
+	}
+	if spaceRootInfo.PermissionSet.PurgeRecycle {
+		auth, err = fs.getUIDGateway(ctx, spaceRootInfo.Owner)
+		if err != nil {
+			return err
+		}
+
+		return fs.c.PurgeDeletedEntry(ctx, auth, key)
+	}
+	return errtypes.PermissionDenied("eosfs: user doesn't have permissions to empty the recycle bin")
 }
 
 func (fs *eosfs) EmptyRecycle(ctx context.Context, ref *provider.Reference) error {

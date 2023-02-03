@@ -824,7 +824,14 @@ func (c *Client) RestoreDeletedEntry(ctx context.Context, auth eosclient.Authori
 	return err
 }
 
-// PurgeDeletedEntries purges all entries from the recycle bin.
+// PurgeDeletedEntry purges a specific item from the recycle bin
+func (c *Client) PurgeDeletedEntry(ctx context.Context, auth eosclient.Authorization, key string) error {
+	args := []string{"recycle", "purge", "-k", key}
+	_, _, err := c.executeEOS(ctx, args, auth)
+	return err
+}
+
+// PurgeDeletedEntries purges all entries from the recycle bin which match a certain path prefix
 func (c *Client) PurgeDeletedEntries(ctx context.Context, auth eosclient.Authorization, p string) error {
 	if p == "" {
 		args := []string{"recycle", "purge"}
