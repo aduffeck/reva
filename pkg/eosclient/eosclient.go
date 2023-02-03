@@ -56,7 +56,7 @@ type EOSClient interface {
 	WriteFile(ctx context.Context, auth Authorization, path, source string) error
 	ListDeletedEntries(ctx context.Context, auth Authorization) ([]*DeletedEntry, error)
 	RestoreDeletedEntry(ctx context.Context, auth Authorization, key string) error
-	PurgeDeletedEntries(ctx context.Context, auth Authorization) error
+	PurgeDeletedEntries(ctx context.Context, auth Authorization, p string) error
 	ListVersions(ctx context.Context, auth Authorization, p string) ([]*FileInfo, error)
 	RollbackToVersion(ctx context.Context, auth Authorization, path, version string) error
 	ReadVersion(ctx context.Context, auth Authorization, p, version string) (io.ReadCloser, error)

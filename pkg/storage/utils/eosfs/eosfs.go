@@ -1521,7 +1521,27 @@ func (fs *eosfs) EmptyRecycle(ctx context.Context, ref *provider.Reference) erro
 		return err
 	}
 
-	return fs.c.PurgeDeletedEntries(ctx, auth)
+	spaceRootInode, err := strconv.ParseUint(ref.ResourceId.SpaceId, 10, 64)
+	if err != nil {
+		return err
+	}
+	spaceRootFileInfo, err := fs.c.GetFileInfoByInode(ctx, auth, spaceRootInode)
+	if err != nil {
+		return err
+	}
+	spaceRootInfo, err := fs.convertToResourceInfo(ctx, spaceRootFileInfo, ref.ResourceId.SpaceId, true)
+	if err != nil {
+		return err
+	}
+	if spaceRootInfo.PermissionSet.PurgeRecycle {
+		auth, err = fs.getUIDGateway(ctx, spaceRootInfo.Owner)
+		if err != nil {
+			return err
+		}
+
+		return fs.c.PurgeDeletedEntries(ctx, auth, spaceRootFileInfo.File)
+	}
+	return errtypes.PermissionDenied("eosfs: user doesn't have permissions to empty the recycle bin")
 }
 
 func (fs *eosfs) ListRecycle(ctx context.Context, ref *provider.Reference, key, relativePath string) ([]*provider.RecycleItem, error) {

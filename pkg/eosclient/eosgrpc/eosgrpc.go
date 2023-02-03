@@ -1437,7 +1437,8 @@ func (c *Client) RestoreDeletedEntry(ctx context.Context, auth eosclient.Authori
 }
 
 // PurgeDeletedEntries purges all entries from the recycle bin.
-func (c *Client) PurgeDeletedEntries(ctx context.Context, auth eosclient.Authorization) error {
+func (c *Client) PurgeDeletedEntries(ctx context.Context, auth eosclient.Authorization, path string) error {
+	// TODO: Only purge the entries in "path"
 	log := appctx.GetLogger(ctx)
 	log.Info().Str("func", "PurgeDeletedEntries").Str("uid,gid", auth.Role.UID+","+auth.Role.GID).Msg("")
 

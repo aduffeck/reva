@@ -825,10 +825,32 @@ func (c *Client) RestoreDeletedEntry(ctx context.Context, auth eosclient.Authori
 }
 
 // PurgeDeletedEntries purges all entries from the recycle bin.
-func (c *Client) PurgeDeletedEntries(ctx context.Context, auth eosclient.Authorization) error {
-	args := []string{"recycle", "purge"}
-	_, _, err := c.executeEOS(ctx, args, auth)
-	return err
+func (c *Client) PurgeDeletedEntries(ctx context.Context, auth eosclient.Authorization, p string) error {
+	if p == "" {
+		args := []string{"recycle", "purge"}
+		_, _, err := c.executeEOS(ctx, args, auth)
+		return err
+	}
+
+	args := []string{"recycle", "ls", "-m"}
+	stdout, _, err := c.executeEOS(ctx, args, auth)
+	if err != nil {
+		return err
+	}
+	entries, err := parseRecycleList(stdout)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.RestorePath, p) {
+			args := []string{"recycle", "purge", "-k", entry.RestoreKey}
+			_, _, err := c.executeEOS(ctx, args, auth)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // ListVersions list all the versions for a given file.

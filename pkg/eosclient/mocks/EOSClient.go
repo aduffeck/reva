@@ -344,13 +344,13 @@ func (_m *EOSClient) ListVersions(ctx context.Context, auth eosclient.Authorizat
 	return r0, r1
 }
 
-// PurgeDeletedEntries provides a mock function with given fields: ctx, auth
-func (_m *EOSClient) PurgeDeletedEntries(ctx context.Context, auth eosclient.Authorization) error {
-	ret := _m.Called(ctx, auth)
+// PurgeDeletedEntries provides a mock function with given fields: ctx, auth, p
+func (_m *EOSClient) PurgeDeletedEntries(ctx context.Context, auth eosclient.Authorization, p string) error {
+	ret := _m.Called(ctx, auth, p)
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, eosclient.Authorization) error); ok {
-		r0 = rf(ctx, auth)
+	if rf, ok := ret.Get(0).(func(context.Context, eosclient.Authorization, string) error); ok {
+		r0 = rf(ctx, auth, p)
 	} else {
 		r0 = ret.Error(0)
 	}
