@@ -1580,37 +1580,36 @@ func (fs *eosfs) ListRecycle(ctx context.Context, ref *provider.Reference, key, 
 }
 
 func (fs *eosfs) RestoreRecycleItem(ctx context.Context, ref *provider.Reference, key, relativePath string, restoreRef *provider.Reference) error {
-	var auth eosclient.Authorization
-
-	if false && ref.Path != "/" {
-		// We need to access the recycle bin for a non-home reference.
-		// We'll get the owner of the particular resource and impersonate them
-		// if we have access to it.
-		md, err := fs.GetMD(ctx, &provider.Reference{Path: ref.Path}, nil, nil)
-		if err != nil {
-			return err
-		}
-		if md.PermissionSet.RestoreRecycleItem {
-			auth, err = fs.getUIDGateway(ctx, md.Owner)
-			if err != nil {
-				return err
-			}
-		} else {
-			return errtypes.PermissionDenied("eosfs: user doesn't have permissions to restore recycled items")
-		}
-	} else {
-		// We just act on the logged-in user's recycle bin
-		u, err := getUser(ctx)
-		if err != nil {
-			return errors.Wrap(err, "eosfs: no user in ctx")
-		}
-		auth, err = fs.getUserAuth(ctx, u, "")
-		if err != nil {
-			return err
-		}
+	u, err := getUser(ctx)
+	if err != nil {
+		return errors.Wrap(err, "eosfs: no user in ctx")
+	}
+	auth, err := fs.getUserAuth(ctx, u, "")
+	if err != nil {
+		return err
 	}
 
-	return fs.c.RestoreDeletedEntry(ctx, auth, key)
+	inode, err := strconv.ParseUint(ref.ResourceId.SpaceId, 10, 64)
+	if err != nil {
+		return err
+	}
+	fi, err := fs.c.GetFileInfoByInode(ctx, auth, inode)
+	if err != nil {
+		return err
+	}
+	info, err := fs.convertToResourceInfo(ctx, fi, ref.ResourceId.SpaceId, true)
+	if err != nil {
+		return err
+	}
+	if info.PermissionSet.RestoreRecycleItem {
+		auth, err = fs.getUIDGateway(ctx, info.Owner)
+		if err != nil {
+			return err
+		}
+		return fs.c.RestoreDeletedEntry(ctx, auth, key)
+
+	}
+	return errtypes.PermissionDenied("eosfs: user doesn't have permissions to restore recycled items")
 }
 
 func (fs *eosfs) convertToRecycleItem(ctx context.Context, eosDeletedItem *eosclient.DeletedEntry, spacePath string) (*provider.RecycleItem, error) {
