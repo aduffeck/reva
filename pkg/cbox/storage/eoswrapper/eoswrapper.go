@@ -72,7 +72,6 @@ func parseConfig(m map[string]interface{}) (*eosfs.Config, string, error) {
 
 	// allow recycle operations for project spaces
 	if !c.EnableHome && strings.HasPrefix(c.Namespace, eosProjectsNamespace) {
-		c.AllowPathRecycleOperations = true
 		c.ImpersonateOwnerforRevisions = true
 	}
 

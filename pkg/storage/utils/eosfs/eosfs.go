@@ -1525,34 +1525,34 @@ func (fs *eosfs) EmptyRecycle(ctx context.Context, ref *provider.Reference) erro
 }
 
 func (fs *eosfs) ListRecycle(ctx context.Context, ref *provider.Reference, key, relativePath string) ([]*provider.RecycleItem, error) {
-	var auth eosclient.Authorization
+	u, err := getUser(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "eosfs: no user in ctx")
+	}
+	auth, err := fs.getUserAuth(ctx, u, "")
+	if err != nil {
+		return nil, err
+	}
 
-	if fs.conf.AllowPathRecycleOperations && ref.Path != "/" {
-		// We need to access the recycle bin for a non-home reference.
-		// We'll get the owner of the particular resource and impersonate them
-		// if we have access to it.
-		md, err := fs.GetMD(ctx, &provider.Reference{Path: ref.Path}, nil, nil)
+	inode, err := strconv.ParseUint(ref.ResourceId.SpaceId, 10, 64)
+	if err != nil {
+		return nil, err
+	}
+	fi, err := fs.c.GetFileInfoByInode(ctx, auth, inode)
+	if err != nil {
+		return nil, err
+	}
+	info, err := fs.convertToResourceInfo(ctx, fi, ref.ResourceId.SpaceId, true)
+	if err != nil {
+		return nil, err
+	}
+	if info.PermissionSet.ListRecycle {
+		auth, err = fs.getUIDGateway(ctx, info.Owner)
 		if err != nil {
 			return nil, err
-		}
-		if md.PermissionSet.ListRecycle {
-			auth, err = fs.getUIDGateway(ctx, md.Owner)
-			if err != nil {
-				return nil, err
-			}
-		} else {
-			return nil, errtypes.PermissionDenied("eosfs: user doesn't have permissions to restore recycled items")
 		}
 	} else {
-		// We just act on the logged-in user's recycle bin
-		u, err := getUser(ctx)
-		if err != nil {
-			return nil, errors.Wrap(err, "eosfs: no user in ctx")
-		}
-		auth, err = fs.getUserAuth(ctx, u, "")
-		if err != nil {
-			return nil, err
-		}
+		return nil, errtypes.PermissionDenied("eosfs: user doesn't have permissions to restore recycled items")
 	}
 
 	eosDeletedEntries, err := fs.c.ListDeletedEntries(ctx, auth)
@@ -1561,6 +1561,10 @@ func (fs *eosfs) ListRecycle(ctx context.Context, ref *provider.Reference, key, 
 	}
 	recycleEntries := []*provider.RecycleItem{}
 	for _, entry := range eosDeletedEntries {
+		if !strings.HasPrefix(entry.RestorePath, fi.File) {
+			continue
+		}
+
 		if !fs.conf.ShowHiddenSysFiles {
 			base := path.Base(entry.RestorePath)
 			if hiddenReg.MatchString(base) {
@@ -1568,7 +1572,7 @@ func (fs *eosfs) ListRecycle(ctx context.Context, ref *provider.Reference, key, 
 			}
 
 		}
-		if recycleItem, err := fs.convertToRecycleItem(ctx, entry); err == nil {
+		if recycleItem, err := fs.convertToRecycleItem(ctx, entry, fi.File); err == nil {
 			recycleEntries = append(recycleEntries, recycleItem)
 		}
 	}
@@ -1578,7 +1582,7 @@ func (fs *eosfs) ListRecycle(ctx context.Context, ref *provider.Reference, key, 
 func (fs *eosfs) RestoreRecycleItem(ctx context.Context, ref *provider.Reference, key, relativePath string, restoreRef *provider.Reference) error {
 	var auth eosclient.Authorization
 
-	if fs.conf.AllowPathRecycleOperations && ref.Path != "/" {
+	if false && ref.Path != "/" {
 		// We need to access the recycle bin for a non-home reference.
 		// We'll get the owner of the particular resource and impersonate them
 		// if we have access to it.
@@ -1609,11 +1613,8 @@ func (fs *eosfs) RestoreRecycleItem(ctx context.Context, ref *provider.Reference
 	return fs.c.RestoreDeletedEntry(ctx, auth, key)
 }
 
-func (fs *eosfs) convertToRecycleItem(ctx context.Context, eosDeletedItem *eosclient.DeletedEntry) (*provider.RecycleItem, error) {
-	path, err := fs.unwrap(ctx, eosDeletedItem.RestorePath, nil)
-	if err != nil {
-		return nil, err
-	}
+func (fs *eosfs) convertToRecycleItem(ctx context.Context, eosDeletedItem *eosclient.DeletedEntry, spacePath string) (*provider.RecycleItem, error) {
+	path := strings.TrimPrefix(eosDeletedItem.RestorePath, spacePath)
 
 	recycleItem := &provider.RecycleItem{
 		Ref:          &provider.Reference{Path: path},
