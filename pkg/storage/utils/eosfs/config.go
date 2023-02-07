@@ -26,9 +26,6 @@ type Config struct {
 	// The root at which the file system is mounted
 	MountPath string `mapstructure:"mount_path"`
 
-	// QuotaNode for storing quota information
-	QuotaNode string `mapstructure:"quota_node"`
-
 	// DefaultQuotaBytes sets the default maximum bytes available for a user
 	DefaultQuotaBytes uint64 `mapstructure:"default_quota_bytes"`
 

@@ -630,7 +630,7 @@ func (fs *eosfs) createOrUpdateSpace(ctx context.Context, space *provider.Storag
 		// This is not a problem as each project space has a dedicated service user set as an owner.
 		// In the future this might be changed to set the quota on the space root instead
 		err := fs.c.SetQuota(ctx, rootAuth, &eosclient.SetQuotaInfo{
-			QuotaNode: fs.conf.QuotaNode,
+			QuotaNode: spacePath,
 			Username:  auth.Role.UID,
 			MaxBytes:  space.Quota.QuotaMaxBytes,
 		})
