@@ -128,6 +128,8 @@ func (fs *eosfs) ListStorageSpaces(ctx context.Context, filter []*provider.ListS
 
 func (fs *eosfs) listPersonalStorageSpaces(ctx context.Context, u *userpb.User, spaceID, spacePath string) ([]*provider.StorageSpace, error) {
 	var eosFileInfo *eosclient.FileInfo
+	var auth eosclient.Authorization
+	var err error
 	// if no spaceID and spacePath are provided, we just return the user home
 	switch {
 	case spaceID == "" && (spacePath == "" || spacePath == "."):
@@ -136,7 +138,7 @@ func (fs *eosfs) listPersonalStorageSpaces(ctx context.Context, u *userpb.User, 
 			return nil, err
 		}
 
-		auth, err := fs.getUserAuth(ctx, u, fn)
+		auth, err = fs.getUserAuth(ctx, u, fn)
 		if err != nil {
 			return nil, err
 		}
@@ -146,7 +148,7 @@ func (fs *eosfs) listPersonalStorageSpaces(ctx context.Context, u *userpb.User, 
 		}
 	case spacePath == "":
 		// else, we'll stat the resource by inode
-		auth, err := fs.getUserAuth(ctx, u, "")
+		auth, err = fs.getUserAuth(ctx, u, "")
 		if err != nil {
 			return nil, err
 		}
@@ -162,7 +164,7 @@ func (fs *eosfs) listPersonalStorageSpaces(ctx context.Context, u *userpb.User, 
 		}
 	default:
 		fn := path.Join(fs.conf.Namespace, spacePath)
-		auth, err := fs.getUserAuth(ctx, u, fn)
+		auth, err = fs.getUserAuth(ctx, u, fn)
 		if err != nil {
 			return nil, err
 		}
@@ -194,6 +196,15 @@ func (fs *eosfs) listPersonalStorageSpaces(ctx context.Context, u *userpb.User, 
 	if err != nil {
 		return nil, err
 	}
+
+	rootAuth, err := fs.getRootAuth(ctx)
+	if err != nil {
+		return nil, err
+	}
+	quota, err := fs.c.GetQuota(ctx, strconv.FormatUint(eosFileInfo.UID, 10), rootAuth, eosFileInfo.File)
+	if err != nil {
+		return nil, err
+	}
 	return []*provider.StorageSpace{{
 		Id:        &provider.StorageSpaceId{OpaqueId: ssID},
 		Name:      md.Owner.OpaqueId,
@@ -207,7 +218,9 @@ func (fs *eosfs) listPersonalStorageSpaces(ctx context.Context, u *userpb.User, 
 			Seconds: eosFileInfo.MTimeSec,
 			Nanos:   eosFileInfo.MTimeNanos,
 		},
-		Quota: &provider.Quota{},
+		Quota: &provider.Quota{
+			QuotaMaxBytes: quota.AvailableBytes,
+		},
 		Opaque: &types.Opaque{
 			Map: map[string]*types.OpaqueEntry{
 				"path": {
@@ -223,7 +236,7 @@ func (fs *eosfs) listPersonalStorageSpaces(ctx context.Context, u *userpb.User, 
 	}}, nil
 }
 
-func (fs *eosfs) fileinfoToSpace(ctx context.Context, fi *eosclient.FileInfo) (*provider.StorageSpace, error) {
+func (fs *eosfs) fileinfoToSpace(ctx context.Context, fi *eosclient.FileInfo, quotaInfo *eosclient.QuotaInfo) (*provider.StorageSpace, error) {
 	relPath := strings.TrimPrefix(fi.File, fs.conf.Namespace)
 	sid := fmt.Sprintf("%d", fi.FID)
 	ssID, err := storagespace.FormatReference(
@@ -281,6 +294,11 @@ func (fs *eosfs) fileinfoToSpace(ctx context.Context, fi *eosclient.FileInfo) (*
 		return nil, err
 	}
 
+	quota := provider.Quota{}
+	if quotaInfo != nil {
+		quota.QuotaMaxBytes = quotaInfo.AvailableBytes
+	}
+
 	spaceName := fi.Attrs[SpaceNameAttr]
 	spaceType := fi.Attrs[SpaceTypeAttr]
 	space := &provider.StorageSpace{
@@ -297,7 +315,7 @@ func (fs *eosfs) fileinfoToSpace(ctx context.Context, fi *eosclient.FileInfo) (*
 			Seconds: fi.MTimeSec,
 			Nanos:   fi.MTimeNanos,
 		},
-		Quota: &provider.Quota{},
+		Quota: &quota,
 		Opaque: &types.Opaque{
 			Map: map[string]*types.OpaqueEntry{
 				"path": {
@@ -414,7 +432,11 @@ func (fs *eosfs) listProjectStorageSpaces(ctx context.Context, user *userpb.User
 			continue
 		}
 
-		space, err := fs.fileinfoToSpace(ctx, fi)
+		quota, err := fs.c.GetQuota(ctx, strconv.FormatUint(fi.UID, 10), rootAuth, fi.File)
+		if err != nil {
+			return nil, err
+		}
+		space, err := fs.fileinfoToSpace(ctx, fi, quota)
 		if err != nil {
 			log.Error().Err(err).Str("path", fi.File).Msgf("eosfs: error converting storage space")
 			continue
@@ -497,13 +519,13 @@ func (fs *eosfs) createOrUpdateSpace(ctx context.Context, space *provider.Storag
 		return nil, err
 	}
 
+	auth, err := fs.getUserAuth(ctx, owner, spacePath)
+	if err != nil {
+		return nil, err
+	}
+
 	_, err = fs.c.GetFileInfoByPath(ctx, rootAuth, spacePath)
 	if err != nil {
-		auth, err := fs.getUserAuth(ctx, owner, spacePath)
-		if err != nil {
-			return nil, err
-		}
-
 		err = fs.c.CreateDir(ctx, rootAuth, spacePath)
 		if err != nil {
 			return nil, err
@@ -603,6 +625,20 @@ func (fs *eosfs) createOrUpdateSpace(ctx context.Context, space *provider.Storag
 		})
 	}
 
+	if space.Quota != nil {
+		// Note: we currently set the quota for the space owner on the global quota node.
+		// This is not a problem as each project space has a dedicated service user set as an owner.
+		// In the future this might be changed to set the quota on the space root instead
+		err := fs.c.SetQuota(ctx, rootAuth, &eosclient.SetQuotaInfo{
+			QuotaNode: fs.conf.QuotaNode,
+			Username:  auth.Role.UID,
+			MaxBytes:  space.Quota.QuotaMaxBytes,
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	if space.Opaque != nil {
 		if image := utils.ReadPlainFromOpaque(space.Opaque, "image"); image != "" {
 			imageID, err := storagespace.ParseID(image)
@@ -656,7 +692,12 @@ func (fs *eosfs) readSpace(ctx context.Context, spacePath string) (*provider.Sto
 		return nil, err
 	}
 
-	return fs.fileinfoToSpace(ctx, eosFileInfo)
+	quota, err := fs.c.GetQuota(ctx, strconv.FormatUint(eosFileInfo.UID, 10), rootAuth, eosFileInfo.File)
+	if err != nil {
+		return nil, err
+	}
+
+	return fs.fileinfoToSpace(ctx, eosFileInfo, quota)
 }
 
 func (fs *eosfs) UpdateStorageSpace(ctx context.Context, req *provider.UpdateStorageSpaceRequest) (*provider.UpdateStorageSpaceResponse, error) {
@@ -680,7 +721,7 @@ func (fs *eosfs) UpdateStorageSpace(ctx context.Context, req *provider.UpdateSto
 		return nil, errors.Wrap(err, "eosfs: error getting file info by inode")
 	}
 
-	owner, err := fs.getUserIDGateway(ctx, strconv.FormatUint(eosFileInfo.UID, 10))
+	owner, err := fs.getUserGateway(ctx, strconv.FormatUint(eosFileInfo.UID, 10))
 	if err != nil {
 		return nil, err
 	}
@@ -691,7 +732,7 @@ func (fs *eosfs) UpdateStorageSpace(ctx context.Context, req *provider.UpdateSto
 		_, restore = req.Opaque.Map["restore"]
 	}
 
-	perms := fs.permissionSet(ctx, eosFileInfo, owner)
+	perms := fs.permissionSet(ctx, eosFileInfo, owner.Id)
 	// Changing name/description requires manager role (mapped to the RemoveGrant permission)
 	if (restore || req.StorageSpace.Name != "" || utils.ReadPlainFromOpaque(req.StorageSpace.Opaque, "description") != "") && !perms.RemoveGrant {
 		if perms.Stat {
@@ -722,7 +763,7 @@ func (fs *eosfs) UpdateStorageSpace(ctx context.Context, req *provider.UpdateSto
 		}
 	}
 
-	space, err := fs.createOrUpdateSpace(ctx, req.StorageSpace, eosFileInfo.File, &userpb.User{Id: owner})
+	space, err := fs.createOrUpdateSpace(ctx, req.StorageSpace, eosFileInfo.File, owner)
 	if err != nil {
 		return nil, err
 	}

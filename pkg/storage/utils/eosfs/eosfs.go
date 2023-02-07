@@ -1204,7 +1204,7 @@ func (fs *eosfs) GetMD(ctx context.Context, ref *provider.Reference, mdKeys []st
 	if err != nil {
 		return nil, err
 	}
-	space, err := fs.fileinfoToSpace(ctx, spaceInfo)
+	space, err := fs.fileinfoToSpace(ctx, spaceInfo, nil)
 	if err != nil {
 		return nil, err
 	}
