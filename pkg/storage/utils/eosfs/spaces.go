@@ -363,7 +363,7 @@ func (fs *eosfs) listProjectStorageSpaces(ctx context.Context, user *userpb.User
 		spaceIDs[spaceID] = struct{}{}
 	} else {
 		// Collect user spaces
-		indexPath := path.Join(fs.conf.Namespace, "spaceIndexes", "by-user", user.Id.OpaqueId)
+		indexPath := path.Join(fs.conf.Namespace, "spaceIndexes", "by-user", pathify(user.Id.OpaqueId, 1, 1))
 		fis, err := fs.c.List(ctx, rootAuth, indexPath)
 		if err != nil {
 			if _, ok := errors.Cause(err).(errtypes.IsNotFound); ok {
@@ -382,7 +382,7 @@ func (fs *eosfs) listProjectStorageSpaces(ctx context.Context, user *userpb.User
 
 		// Collect group spaces
 		for _, g := range user.Groups {
-			indexPath := path.Join(fs.conf.Namespace, "spaceIndexes", "by-group", g)
+			indexPath := path.Join(fs.conf.Namespace, "spaceIndexes", "by-group", pathify(g, 1, 1))
 			fis, err := fs.c.List(ctx, rootAuth, indexPath)
 			if err != nil {
 				if _, ok := errors.Cause(err).(errtypes.IsNotFound); ok {
@@ -830,12 +830,12 @@ func (fs *eosfs) unlinkIndex(ctx context.Context, index, value, id string) error
 		return err
 	}
 
-	indexPath := path.Join(fs.conf.Namespace, "spaceIndexes", "by-"+index, value, id)
+	indexPath := path.Join(fs.conf.Namespace, "spaceIndexes", "by-"+index, pathify(value, 1, 1), id)
 	return fs.c.Remove(ctx, rootAuth, indexPath, true)
 }
 
 func (fs *eosfs) linkIndex(ctx context.Context, index, value, id, target string) error {
-	indexPath := path.Join(fs.conf.Namespace, "spaceIndexes", "by-"+index, value, id)
+	indexPath := path.Join(fs.conf.Namespace, "spaceIndexes", "by-"+index, pathify(value, 1, 1), id)
 
 	rootAuth, err := fs.getRootAuth(ctx)
 	if err != nil {
