@@ -162,6 +162,4 @@ type Config struct {
 	// TokenExpiry stores in seconds the time after which generated tokens will expire
 	// Default is 3600
 	TokenExpiry int `mapstructure:"token_expiry"`
-
-	SpacesConfig SpacesConfig `mapstructure:"spaces_config"`
 }

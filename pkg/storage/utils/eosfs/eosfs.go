@@ -20,7 +20,6 @@ package eosfs
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -140,7 +139,6 @@ type eosfs struct {
 	c              eosclient.EOSClient
 	conf           *Config
 	chunkHandler   *chunking.ChunkHandler
-	spacesDB       *sql.DB
 	singleUserAuth eosclient.Authorization
 	userCache      *ttlcache.Cache
 	tokenCache     gcache.Cache
@@ -208,18 +206,9 @@ func NewEOSFS(c *Config) (storage.FS, error) {
 		return nil, errors.Wrap(err, "error initializing eosclient")
 	}
 
-	var db *sql.DB
-	if c.SpacesConfig.Enabled {
-		db, err = sql.Open("mysql", fmt.Sprintf("%s:%s@tcp(%s:%d)/%s", c.SpacesConfig.DbUsername, c.SpacesConfig.DbPassword, c.SpacesConfig.DbHost, c.SpacesConfig.DbPort, c.SpacesConfig.DbName))
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	eosfs := &eosfs{
 		c:            eosClient,
 		conf:         c,
-		spacesDB:     db,
 		chunkHandler: chunking.NewChunkHandler(c.CacheDirectory),
 		userCache:    ttlcache.NewCache(),
 		tokenCache:   gcache.New(c.UserIDCacheSize).LFU().Build(),

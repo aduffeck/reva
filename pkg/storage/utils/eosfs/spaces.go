@@ -24,7 +24,6 @@ import (
 	"fmt"
 	"path"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -58,22 +57,6 @@ const (
 	SpaceDescriptionAttr = OcisPrefix + "space.description"
 	SpaceReadmeAttr      = OcisPrefix + "space.readme"
 	SpaceImageAttr       = OcisPrefix + "space.image"
-)
-
-// SpacesConfig specifies the required configuration parameters needed
-// to connect to the project spaces DB
-type SpacesConfig struct {
-	Enabled    bool   `mapstructure:"enabled"`
-	DbUsername string `mapstructure:"db_username"`
-	DbPassword string `mapstructure:"db_password"`
-	DbHost     string `mapstructure:"db_host"`
-	DbName     string `mapstructure:"db_name"`
-	DbTable    string `mapstructure:"db_table"`
-	DbPort     int    `mapstructure:"db_port"`
-}
-
-var (
-	egroupRegex = regexp.MustCompile(`^cernbox-project-(?P<Name>.+)-(?P<Permissions>admins|writers|readers)\z`)
 )
 
 func (fs *eosfs) ListStorageSpaces(ctx context.Context, filter []*provider.ListStorageSpacesRequest_Filter, unrestricted bool) ([]*provider.StorageSpace, error) {
@@ -114,7 +97,7 @@ func (fs *eosfs) ListStorageSpaces(ctx context.Context, filter []*provider.ListS
 		}
 		spaces = append(spaces, personalSpaces...)
 	}
-	if fs.conf.SpacesConfig.Enabled && (spaceType == "" || spaceType == spaceTypeProject) {
+	if spaceType == "" || spaceType == spaceTypeProject {
 		projectSpaces, err := fs.listProjectStorageSpaces(ctx, u, spaceID, spacePath)
 		if err != nil {
 			return nil, err
