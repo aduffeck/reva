@@ -670,6 +670,9 @@ func (c *Client) GetQuota(ctx context.Context, username string, rootAuth eosclie
 	args := []string{"quota", "ls", "-u", username, "-p", path, "-m"}
 	stdout, _, err := c.executeEOS(ctx, args, rootAuth)
 	if err != nil {
+		if strings.Contains(err.Error(), "no quota for path") {
+			return &eosclient.QuotaInfo{}, nil
+		}
 		return nil, err
 	}
 	return c.parseQuota(path, stdout)
