@@ -127,7 +127,7 @@ func (fs *eosfs) InitiateUpload(ctx context.Context, ref *provider.Reference, up
 			"GID":                 strconv.FormatUint(parentInfo.GID, 10),
 			"StoragePath":         resPath,
 			"SpacePath":           spacePath,
-			"SpaceRoot":           spacePath,
+			"SpaceRoot":           ref.GetResourceId().GetSpaceId(),
 			"SpaceOwnerOrManager": owner.GetId().GetOpaqueId(),
 		},
 	}
