@@ -92,9 +92,9 @@ func (c *config) init() {
 	if c.DataServerURL == "" {
 		host, err := os.Hostname()
 		if err != nil || host == "" {
-			c.DataServerURL = "http://0.0.0.0:19001/data"
+			c.DataServerURL = "https://0.0.0.0:19001/data"
 		} else {
-			c.DataServerURL = fmt.Sprintf("http://%s:19001/data", host)
+			c.DataServerURL = fmt.Sprintf("https://%s:19001/data", host)
 		}
 	}
 

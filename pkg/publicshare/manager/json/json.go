@@ -105,7 +105,7 @@ func NewCS3(c map[string]interface{}) (publicshare.Manager, error) {
 
 	conf.init()
 
-	s, err := metadata.NewCS3Storage(conf.ProviderAddr, conf.ProviderAddr, conf.ServiceUserID, conf.ServiceUserIdp, conf.MachineAuthAPIKey)
+	s, err := metadata.NewCS3Storage(conf.ProviderAddr, conf.ProviderAddr, conf.ServiceUserID, conf.ServiceUserIdp, conf.MachineAuthAPIKey, conf.InternalRootCA)
 	if err != nil {
 		return nil, err
 	}
@@ -155,6 +155,7 @@ type cs3Config struct {
 	ServiceUserID     string `mapstructure:"service_user_id"`
 	ServiceUserIdp    string `mapstructure:"service_user_idp"`
 	MachineAuthAPIKey string `mapstructure:"machine_auth_apikey"`
+	InternalRootCA    string `mapstructure:"internal_root_ca"`
 }
 
 func (c *commonConfig) init() {

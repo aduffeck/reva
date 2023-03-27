@@ -55,11 +55,11 @@ func init() {
 
 // Config holds the config options for the HTTP appprovider service
 type Config struct {
-	Prefix     string `mapstructure:"prefix"`
-	GatewaySvc string `mapstructure:"gatewaysvc"`
-	Insecure   bool   `mapstructure:"insecure"`
-	WebBaseURI string `mapstructure:"webbaseuri"`
-	Web        Web    `mapstructure:"web"`
+	Prefix         string `mapstructure:"prefix"`
+	GatewaySvc     string `mapstructure:"gatewaysvc"`
+	InternalRootCA string `mapstructure:"internal_root_ca"`
+	WebBaseURI     string `mapstructure:"webbaseuri"`
+	Web            Web    `mapstructure:"web"`
 }
 
 // Web holds the config options for the URL parameters for Web
@@ -268,7 +268,7 @@ func (s *svc) handleNew(w http.ResponseWriter, r *http.Request) {
 	httpReq.Header.Set(datagateway.TokenTransportHeader, token)
 	httpRes, err := rhttp.GetHTTPClient(
 		rhttp.Context(ctx),
-		rhttp.Insecure(s.conf.Insecure),
+		rhttp.RootCA(s.conf.InternalRootCA),
 	).Do(httpReq)
 	if err != nil {
 		writeError(w, r, appErrorServerError, "failed to create the file", err)

@@ -78,6 +78,7 @@ type config struct {
 	ServiceUserID     string `mapstructure:"service_user_id"`
 	ServiceUserIdp    string `mapstructure:"service_user_idp"`
 	MachineAuthAPIKey string `mapstructure:"machine_auth_apikey"`
+	InternalRootCA    string `mapstructure:"internal_root_ca"`
 }
 
 // NewDefault returns a new manager instance with default dependencies
@@ -88,7 +89,7 @@ func NewDefault(m map[string]interface{}) (share.Manager, error) {
 		return nil, err
 	}
 
-	s, err := metadata.NewCS3Storage(c.GatewayAddr, c.ProviderAddr, c.ServiceUserID, c.ServiceUserIdp, c.MachineAuthAPIKey)
+	s, err := metadata.NewCS3Storage(c.GatewayAddr, c.ProviderAddr, c.ServiceUserID, c.ServiceUserIdp, c.MachineAuthAPIKey, c.InternalRootCA)
 	if err != nil {
 		return nil, err
 	}

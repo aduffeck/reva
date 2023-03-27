@@ -20,6 +20,7 @@ package rhttp
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net"
 	"net/http"
@@ -53,9 +54,9 @@ func New(m interface{}, l zerolog.Logger, tp trace.TracerProvider) (*Server, err
 
 	conf.init()
 
-	httpServer := &http.Server{}
 	s := &Server{
-		httpServer:     httpServer,
+		httpServer: &http.Server{},
+		// http2Server:    &http2.Server{},
 		conf:           conf,
 		svcs:           map[string]global.Service{},
 		unprotected:    []string{},
@@ -68,7 +69,8 @@ func New(m interface{}, l zerolog.Logger, tp trace.TracerProvider) (*Server, err
 
 // Server contains the server info.
 type Server struct {
-	httpServer     *http.Server
+	httpServer *http.Server
+	// http2Server    *http2.Server
 	conf           *config
 	listener       net.Listener
 	svcs           map[string]global.Service // map key is svc Prefix
@@ -84,6 +86,8 @@ type config struct {
 	Address     string                            `mapstructure:"address"`
 	Services    map[string]map[string]interface{} `mapstructure:"services"`
 	Middlewares map[string]map[string]interface{} `mapstructure:"middlewares"`
+	Cert        string                            `mapstructure:"cert"`
+	Key         string                            `mapstructure:"key"`
 	CertFile    string                            `mapstructure:"certfile"`
 	KeyFile     string                            `mapstructure:"keyfile"`
 }
@@ -120,6 +124,17 @@ func (s *Server) Start(ln net.Listener) error {
 	if (s.conf.CertFile != "") && (s.conf.KeyFile != "") {
 		s.log.Info().Msgf("https server listening at https://%s '%s' '%s'", s.conf.Address, s.conf.CertFile, s.conf.KeyFile)
 		err = s.httpServer.ServeTLS(s.listener, s.conf.CertFile, s.conf.KeyFile)
+	} else if s.conf.Cert != "" && s.conf.Key != "" {
+		s.log.Info().Msgf("https server listening with in-memory cert at https://%s", s.conf.Address)
+		cert, err := tls.X509KeyPair([]byte(s.conf.Cert), []byte(s.conf.Key))
+		if err != nil {
+			return err
+		}
+		s.httpServer.TLSConfig = &tls.Config{
+			NextProtos:   []string{"h2", "http/1.1"},
+			Certificates: []tls.Certificate{cert},
+		}
+		err = s.httpServer.ServeTLS(s.listener, "", "")
 	} else {
 		s.log.Info().Msgf("http server listening at http://%s '%s' '%s'", s.conf.Address, s.conf.CertFile, s.conf.KeyFile)
 		err = s.httpServer.Serve(s.listener)
@@ -213,7 +228,7 @@ func (s *Server) registerServices() error {
 			}
 
 			// instrument services with opencensus tracing.
-			h := traceHandler(svcName, svc.Handler(), s.tracerProvider)
+			h := s.traceHandler(svcName, svc.Handler(), s.tracerProvider)
 			s.handlers[svc.Prefix()] = h
 			s.svcs[svc.Prefix()] = svc
 			s.unprotected = append(s.unprotected, getUnprotected(svc.Prefix(), svc.Unprotected())...)
@@ -242,6 +257,7 @@ func getUnprotected(prefix string, unprotected []string) []string {
 
 func (s *Server) getHandler() (http.Handler, error) {
 	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Println("$$$$ rhttp:", r.Method, r.Proto, r.URL)
 		head, tail := router.ShiftPath(r.URL.Path)
 		if h, ok := s.handlers[head]; ok {
 			r.URL.Path = tail
@@ -271,7 +287,7 @@ func (s *Server) getHandler() (http.Handler, error) {
 
 	for _, triple := range s.middlewares {
 		s.log.Info().Msgf("chaining http middleware %s with priority  %d", triple.Name, triple.Priority)
-		handler = triple.Middleware(traceHandler(triple.Name, handler, s.tracerProvider))
+		handler = triple.Middleware(s.traceHandler(triple.Name, handler, s.tracerProvider))
 	}
 
 	for _, v := range s.unprotected {
@@ -299,13 +315,13 @@ func (s *Server) getHandler() (http.Handler, error) {
 	coreMiddlewares = append(coreMiddlewares, &middlewareTriple{Middleware: appctx.New(s.log, s.tracerProvider), Name: "appctx"})
 
 	for _, triple := range coreMiddlewares {
-		handler = triple.Middleware(traceHandler(triple.Name, handler, s.tracerProvider))
+		handler = triple.Middleware(s.traceHandler(triple.Name, handler, s.tracerProvider))
 	}
 
 	return handler, nil
 }
 
-func traceHandler(name string, h http.Handler, tp trace.TracerProvider) http.Handler {
+func (s *Server) traceHandler(name string, h http.Handler, tp trace.TracerProvider) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := rtrace.Propagator.Extract(r.Context(), propagation.HeaderCarrier(r.Header))
 		t := tp.Tracer(tracerName)

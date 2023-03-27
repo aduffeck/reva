@@ -36,6 +36,7 @@ import (
 	"github.com/cs3org/reva/v2/pkg/errtypes"
 	"github.com/cs3org/reva/v2/pkg/rgrpc/status"
 	"github.com/cs3org/reva/v2/pkg/rgrpc/todo/pool"
+	"github.com/cs3org/reva/v2/pkg/rhttp"
 	"github.com/cs3org/reva/v2/pkg/utils"
 	"google.golang.org/grpc/metadata"
 )
@@ -51,13 +52,11 @@ type CS3 struct {
 }
 
 // NewCS3Storage returns a new cs3 storage instance
-func NewCS3Storage(gwAddr, providerAddr, serviceUserID, serviceUserIDP, machineAuthAPIKey string) (s Storage, err error) {
-	c := http.DefaultClient
-
+func NewCS3Storage(gwAddr, providerAddr, serviceUserID, serviceUserIDP, machineAuthAPIKey, ca string) (s Storage, err error) {
 	return &CS3{
 		providerAddr:      providerAddr,
 		gatewayAddr:       gwAddr,
-		dataGatewayClient: c,
+		dataGatewayClient: rhttp.GetHTTPClient(rhttp.RootCA(ca)),
 		machineAuthAPIKey: machineAuthAPIKey,
 		serviceUser: &user.User{
 			Id: &user.UserId{

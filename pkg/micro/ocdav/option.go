@@ -176,6 +176,13 @@ func Insecure(val bool) Option {
 	}
 }
 
+// InternalRootCA provides a function to set the InternalRootCA config option.
+func InternalRootCA(val string) Option {
+	return func(o *Options) {
+		o.config.InternalRootCA = val
+	}
+}
+
 // PublicURL provides a function to set the PublicURL config option.
 func PublicURL(val string) Option {
 	return func(o *Options) {

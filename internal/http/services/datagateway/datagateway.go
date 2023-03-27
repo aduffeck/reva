@@ -59,6 +59,7 @@ type config struct {
 	TransferSharedSecret string `mapstructure:"transfer_shared_secret"`
 	Timeout              int64  `mapstructure:"timeout"`
 	Insecure             bool   `mapstructure:"insecure"`
+	InternalRootCA       string `mapstructure:"internal_root_ca"`
 }
 
 func (c *config) init() {
@@ -88,7 +89,7 @@ func New(m map[string]interface{}, log *zerolog.Logger) (global.Service, error) 
 		conf: conf,
 		client: rhttp.GetHTTPClient(
 			rhttp.Timeout(time.Duration(conf.Timeout*int64(time.Second))),
-			rhttp.Insecure(conf.Insecure),
+			rhttp.RootCA(conf.InternalRootCA),
 		),
 	}
 	s.setHandler()

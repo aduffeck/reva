@@ -20,6 +20,7 @@ package rhttp
 
 import (
 	"context"
+	"crypto/x509"
 	"time"
 )
 
@@ -32,6 +33,7 @@ type Options struct {
 	Timeout          time.Duration
 	Insecure         bool
 	DisableKeepAlive bool
+	RootCAs          *x509.CertPool
 }
 
 // newOptions initializes the available default options.
@@ -70,5 +72,15 @@ func Timeout(t time.Duration) Option {
 func DisableKeepAlive(disable bool) Option {
 	return func(o *Options) {
 		o.DisableKeepAlive = disable
+	}
+}
+
+// RootCA provides a function to set the RootCA
+func RootCA(ca string) Option {
+	certs := x509.NewCertPool()
+	certs.AppendCertsFromPEM([]byte(ca))
+
+	return func(o *Options) {
+		o.RootCAs = certs
 	}
 }

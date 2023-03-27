@@ -38,7 +38,7 @@ func (s *svc) handlePathDelete(w http.ResponseWriter, r *http.Request, ns string
 	ctx, span := s.tracerProvider.Tracer(tracerName).Start(ctx, "path_delete")
 	defer span.End()
 
-	if r.Body != http.NoBody {
+	if r.ContentLength != 0 {
 		return http.StatusUnsupportedMediaType, errors.New("body must be empty")
 	}
 
@@ -117,7 +117,7 @@ func (s *svc) handleSpacesDelete(w http.ResponseWriter, r *http.Request, spaceID
 	ctx, span := s.tracerProvider.Tracer(tracerName).Start(ctx, "spaces_delete")
 	defer span.End()
 
-	if r.Body != http.NoBody {
+	if r.ContentLength != 0 {
 		return http.StatusUnsupportedMediaType, errors.New("body must be empty")
 	}
 

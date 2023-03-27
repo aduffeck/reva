@@ -68,7 +68,7 @@ type config struct {
 	AppAPIKey                 string `mapstructure:"app_api_key" docs:";The API key used by the app, if applicable."`
 	JWTSecret                 string `mapstructure:"jwt_secret" docs:";The JWT secret to be used to retrieve the token TTL."`
 	AppDesktopOnly            bool   `mapstructure:"app_desktop_only" docs:"false;Specifies if the app can be opened only on desktop."`
-	InsecureConnections       bool   `mapstructure:"insecure_connections"`
+	InternalRootCA            string `mapstructure:"internal_root_ca"`
 }
 
 func parseConfig(m map[string]interface{}) (*config, error) {
@@ -108,7 +108,7 @@ func New(m map[string]interface{}) (app.Provider, error) {
 
 	wopiClient := rhttp.GetHTTPClient(
 		rhttp.Timeout(time.Duration(5*int64(time.Second))),
-		rhttp.Insecure(c.InsecureConnections),
+		rhttp.RootCA(c.InternalRootCA),
 	)
 	wopiClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		return http.ErrUseLastResponse
@@ -310,7 +310,7 @@ func getAppURLs(c *config) (map[string]map[string]string, error) {
 	// Initialize WOPI URLs by discovery
 	httpcl := rhttp.GetHTTPClient(
 		rhttp.Timeout(time.Duration(5*int64(time.Second))),
-		rhttp.Insecure(c.InsecureConnections),
+		rhttp.RootCA(c.InternalRootCA),
 	)
 
 	appurl, err := url.Parse(c.AppIntURL)

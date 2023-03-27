@@ -101,6 +101,7 @@ type Config struct {
 	GatewaySvc      string `mapstructure:"gatewaysvc"`
 	Timeout         int64  `mapstructure:"timeout"`
 	Insecure        bool   `mapstructure:"insecure"`
+	InternalRootCA  string `mapstructure:"internal_root_ca"`
 	// If true, HTTP COPY will expect the HTTP-TPC (third-party copy) headers
 	EnableHTTPTpc          bool                              `mapstructure:"enable_http_tpc"`
 	PublicURL              string                            `mapstructure:"public_url"`
@@ -210,7 +211,7 @@ func NewWith(conf *Config, fm favorite.Manager, ls LockSystem, _ *zerolog.Logger
 		davHandler:    new(DavHandler),
 		client: rhttp.GetHTTPClient(
 			rhttp.Timeout(time.Duration(conf.Timeout*int64(time.Second))),
-			rhttp.Insecure(conf.Insecure),
+			rhttp.RootCA(conf.InternalRootCA),
 		),
 		gwClient:            gwc,
 		favoritesManager:    fm,

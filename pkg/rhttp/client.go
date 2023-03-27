@@ -25,6 +25,7 @@ import (
 	"net/http"
 
 	"go.opencensus.io/plugin/ochttp"
+	"golang.org/x/net/http2"
 
 	ctxpkg "github.com/cs3org/reva/v2/pkg/ctx"
 	"github.com/pkg/errors"
@@ -36,10 +37,19 @@ import (
 func GetHTTPClient(opts ...Option) *http.Client {
 	options := newOptions(opts...)
 
-	tr := http.DefaultTransport.(*http.Transport).Clone()
-	tr.DisableKeepAlives = options.DisableKeepAlive
-	tr.TLSClientConfig = &tls.Config{
-		InsecureSkipVerify: options.Insecure,
+	// tr := http.DefaultTransport.(*http.Transport).Clone()
+	// tr.DisableKeepAlives = options.DisableKeepAlive
+	// tr.TLSClientConfig = &tls.Config{
+	// 	RootCAs: options.RootCAs,
+	// }
+
+	tr := &http2.Transport{
+		TLSClientConfig: &tls.Config{
+			MinVersion: tls.VersionTLS12,
+			// InsecureSkipVerify: options.Config.InsecureBackends, //nolint:gosec
+			NextProtos: []string{"h2", "http/1.1"},
+			RootCAs:    options.RootCAs,
+		},
 	}
 
 	httpClient := &http.Client{

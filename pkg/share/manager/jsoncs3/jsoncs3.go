@@ -120,6 +120,7 @@ type config struct {
 	ServiceUserIdp    string       `mapstructure:"service_user_idp"`
 	MachineAuthAPIKey string       `mapstructure:"machine_auth_apikey"`
 	CacheTTL          int          `mapstructure:"ttl"`
+	InternalRootCA    string       `mapstructure:"internal_root_ca"`
 	Events            EventOptions `mapstructure:"events"`
 }
 
@@ -157,7 +158,7 @@ func NewDefault(m map[string]interface{}) (share.Manager, error) {
 		return nil, err
 	}
 
-	s, err := metadata.NewCS3Storage(c.ProviderAddr, c.ProviderAddr, c.ServiceUserID, c.ServiceUserIdp, c.MachineAuthAPIKey)
+	s, err := metadata.NewCS3Storage(c.ProviderAddr, c.ProviderAddr, c.ServiceUserID, c.ServiceUserIdp, c.MachineAuthAPIKey, c.InternalRootCA)
 	if err != nil {
 		return nil, err
 	}

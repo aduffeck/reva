@@ -61,7 +61,7 @@ type Config struct {
 	Prefix         string   `mapstructure:"prefix"`
 	GatewaySvc     string   `mapstructure:"gatewaysvc"`
 	Timeout        int64    `mapstructure:"timeout"`
-	Insecure       bool     `mapstructure:"insecure"`
+	InternalRootCA string   `mapstructure:"internal_root_ca"`
 	Name           string   `mapstructure:"name"`
 	MaxNumFiles    int64    `mapstructure:"max_num_files"`
 	MaxSize        int64    `mapstructure:"max_size"`
@@ -98,9 +98,12 @@ func New(conf map[string]interface{}, log *zerolog.Logger) (global.Service, erro
 	}
 
 	return &svc{
-		config:         c,
-		gtwClient:      gtw,
-		downloader:     downloader.NewDownloader(gtw, rhttp.Insecure(c.Insecure), rhttp.Timeout(time.Duration(c.Timeout*int64(time.Second)))),
+		config:    c,
+		gtwClient: gtw,
+		downloader: downloader.NewDownloader(gtw,
+			rhttp.Timeout(time.Duration(c.Timeout*int64(time.Second))),
+			rhttp.RootCA(c.InternalRootCA),
+		),
 		walker:         walker.NewWalker(gtw),
 		log:            log,
 		allowedFolders: allowedFolderRegex,

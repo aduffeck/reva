@@ -42,7 +42,7 @@ func (s *svc) handlePathMove(w http.ResponseWriter, r *http.Request, ns string) 
 	ctx, span := s.tracerProvider.Tracer(tracerName).Start(r.Context(), "move")
 	defer span.End()
 
-	if r.Body != http.NoBody {
+	if r.ContentLength != 0 {
 		w.WriteHeader(http.StatusUnsupportedMediaType)
 		b, err := errors.Marshal(http.StatusUnsupportedMediaType, "body must be empty", "")
 		errors.HandleWebdavError(appctx.GetLogger(ctx), w, b, err)
@@ -107,7 +107,7 @@ func (s *svc) handleSpacesMove(w http.ResponseWriter, r *http.Request, srcSpaceI
 	ctx, span := s.tracerProvider.Tracer(tracerName).Start(r.Context(), "spaces_move")
 	defer span.End()
 
-	if r.Body != http.NoBody {
+	if r.ContentLength != 0 {
 		w.WriteHeader(http.StatusUnsupportedMediaType)
 		b, err := errors.Marshal(http.StatusUnsupportedMediaType, "body must be empty", "")
 		errors.HandleWebdavError(appctx.GetLogger(ctx), w, b, err)
