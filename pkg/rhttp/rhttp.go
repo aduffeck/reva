@@ -40,6 +40,7 @@ import (
 	"github.com/rs/zerolog"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/net/http2"
 )
 
 // name is the Tracer name used to identify this instrumentation library.
@@ -54,8 +55,13 @@ func New(m interface{}, l zerolog.Logger, tp trace.TracerProvider) (*Server, err
 
 	conf.init()
 
+	server := &http.Server{}
+	http2.ConfigureServer(server, &http2.Server{
+		MaxReadFrameSize: 256000, // 256K read frame, https://github.com/golang/go/issues/47840
+	})
+
 	s := &Server{
-		httpServer: &http.Server{},
+		httpServer: server,
 		// http2Server:    &http2.Server{},
 		conf:           conf,
 		svcs:           map[string]global.Service{},
