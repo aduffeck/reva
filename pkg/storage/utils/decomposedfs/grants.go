@@ -20,7 +20,6 @@ package decomposedfs
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -31,6 +30,7 @@ import (
 	"github.com/cs3org/reva/v2/pkg/storage/utils/ace"
 	"github.com/cs3org/reva/v2/pkg/storage/utils/decomposedfs/metadata/prefixes"
 	"github.com/cs3org/reva/v2/pkg/storage/utils/decomposedfs/node"
+	"github.com/cs3org/reva/v2/pkg/storage/utils/decomposedfs/os"
 	"github.com/cs3org/reva/v2/pkg/storagespace"
 	"github.com/cs3org/reva/v2/pkg/utils"
 )

@@ -22,7 +22,6 @@ import (
 	"context"
 	"encoding/json"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"time"
 
@@ -31,6 +30,7 @@ import (
 	"github.com/cs3org/reva/v2/pkg/appctx"
 	ctxpkg "github.com/cs3org/reva/v2/pkg/ctx"
 	"github.com/cs3org/reva/v2/pkg/errtypes"
+	"github.com/cs3org/reva/v2/pkg/storage/utils/decomposedfs/os"
 	"github.com/cs3org/reva/v2/pkg/storage/utils/filelocks"
 	"github.com/cs3org/reva/v2/pkg/utils"
 	"github.com/pkg/errors"

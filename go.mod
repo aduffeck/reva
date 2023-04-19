@@ -52,6 +52,7 @@ require (
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/nats-io/nats-server/v2 v2.9.3
 	github.com/nats-io/nats.go v1.18.0
+	github.com/olekukonko/tablewriter v0.0.5
 	github.com/onsi/ginkgo/v2 v2.7.0
 	github.com/onsi/gomega v1.25.0
 	github.com/owncloud/ocis/v2 v2.0.0-beta2.0.20220929090834-3b95dcc545dc
@@ -65,7 +66,7 @@ require (
 	github.com/sciencemesh/meshdirectory-web v1.0.4
 	github.com/sethvargo/go-password v0.2.0
 	github.com/shamaton/msgpack/v2 v2.1.1
-	github.com/stretchr/testify v1.8.1
+	github.com/stretchr/testify v1.8.2
 	github.com/studio-b12/gowebdav v0.0.0-20221015232716-17255f2e7423
 	github.com/test-go/testify v1.1.4
 	github.com/thanhpk/randstr v1.0.4
@@ -81,7 +82,7 @@ require (
 	golang.org/x/crypto v0.1.0
 	golang.org/x/oauth2 v0.1.0
 	golang.org/x/sync v0.1.0
-	golang.org/x/sys v0.4.0
+	golang.org/x/sys v0.6.0
 	golang.org/x/term v0.4.0
 	golang.org/x/text v0.6.0
 	google.golang.org/genproto v0.0.0-20221024183307-1bc688fe9f3e

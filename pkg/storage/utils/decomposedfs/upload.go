@@ -21,7 +21,6 @@ package decomposedfs
 import (
 	"context"
 	"io"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -38,6 +37,7 @@ import (
 	"github.com/cs3org/reva/v2/pkg/storage"
 	"github.com/cs3org/reva/v2/pkg/storage/utils/chunking"
 	"github.com/cs3org/reva/v2/pkg/storage/utils/decomposedfs/node"
+	"github.com/cs3org/reva/v2/pkg/storage/utils/decomposedfs/os"
 	"github.com/cs3org/reva/v2/pkg/storage/utils/decomposedfs/upload"
 	"github.com/cs3org/reva/v2/pkg/utils"
 	"github.com/pkg/errors"

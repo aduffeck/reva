@@ -20,10 +20,10 @@ package metadata
 
 import (
 	"io"
-	"os"
 	"path/filepath"
 	"strconv"
 
+	"github.com/cs3org/reva/v2/pkg/storage/utils/decomposedfs/os"
 	"github.com/cs3org/reva/v2/pkg/storage/utils/filelocks"
 	"github.com/pkg/errors"
 	"github.com/pkg/xattr"

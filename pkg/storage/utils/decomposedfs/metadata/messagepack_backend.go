@@ -20,7 +20,6 @@ package metadata
 
 import (
 	"io"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -28,6 +27,7 @@ import (
 
 	"github.com/cs3org/reva/v2/pkg/storage/cache"
 	"github.com/cs3org/reva/v2/pkg/storage/utils/decomposedfs/options"
+	"github.com/cs3org/reva/v2/pkg/storage/utils/decomposedfs/os"
 	"github.com/pkg/xattr"
 	"github.com/rogpeppe/go-internal/lockedfile"
 	"github.com/shamaton/msgpack/v2"
