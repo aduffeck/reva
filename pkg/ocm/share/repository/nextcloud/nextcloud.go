@@ -37,7 +37,7 @@ import (
 	"github.com/cs3org/reva/v2/pkg/ocm/share"
 	"github.com/cs3org/reva/v2/pkg/ocm/share/repository/registry"
 	"github.com/cs3org/reva/v2/pkg/utils"
-	"github.com/mitchellh/mapstructure"
+	"github.com/cs3org/reva/v2/pkg/utils/cfg"
 	"github.com/pkg/errors"
 	"google.golang.org/genproto/protobuf/field_mask"
 )
@@ -78,14 +78,14 @@ type GranteeAltMap struct {
 
 // ShareAltMap is an alternative map to JSON-unmarshal a Share.
 type ShareAltMap struct {
-	ID          *ocm.ShareId          `json:"id"`
-	ResourceID  *provider.ResourceId  `json:"resource_id"`
-	Permissions *ocm.SharePermissions `json:"permissions"`
-	Grantee     *GranteeAltMap        `json:"grantee"`
-	Owner       *userpb.UserId        `json:"owner"`
-	Creator     *userpb.UserId        `json:"creator"`
-	Ctime       *typespb.Timestamp    `json:"ctime"`
-	Mtime       *typespb.Timestamp    `json:"mtime"`
+	ID            *ocm.ShareId          `json:"id"`
+	RemoteShareID string                `json:"remote_share_id"`
+	Permissions   *ocm.SharePermissions `json:"permissions"`
+	Grantee       *GranteeAltMap        `json:"grantee"`
+	Owner         *userpb.UserId        `json:"owner"`
+	Creator       *userpb.UserId        `json:"creator"`
+	Ctime         *typespb.Timestamp    `json:"ctime"`
+	Mtime         *typespb.Timestamp    `json:"mtime"`
 }
 
 // ReceivedShareAltMap is an alternative map to JSON-unmarshal a ReceivedShare.
@@ -94,27 +94,14 @@ type ReceivedShareAltMap struct {
 	State ocm.ShareState `json:"state"`
 }
 
-func (c *ShareManagerConfig) init() {
-}
-
-func parseConfig(m map[string]interface{}) (*ShareManagerConfig, error) {
-	c := &ShareManagerConfig{}
-	if err := mapstructure.Decode(m, c); err != nil {
-		err = errors.Wrap(err, "error decoding conf")
-		return nil, err
-	}
-	return c, nil
-}
-
 // New returns a share manager implementation that verifies against a Nextcloud backend.
-func New(m map[string]interface{}) (share.Repository, error) {
-	c, err := parseConfig(m)
-	if err != nil {
+func New(ctx context.Context, m map[string]interface{}) (share.Repository, error) {
+	var c ShareManagerConfig
+	if err := cfg.Decode(m, &c); err != nil {
 		return nil, err
 	}
-	c.init()
 
-	return NewShareManager(c)
+	return NewShareManager(&c)
 }
 
 // NewShareManager returns a new Nextcloud-based ShareManager.
@@ -179,8 +166,7 @@ func (sm *Manager) GetShare(ctx context.Context, user *userpb.User, ref *ocm.Sha
 		return nil, err
 	}
 	return &ocm.Share{
-		Id:         altResult.ID,
-		ResourceId: altResult.ResourceID,
+		Id: altResult.ID,
 		Grantee: &provider.Grantee{
 			Id: altResult.Grantee.ID,
 		},
@@ -203,14 +189,13 @@ func (sm *Manager) DeleteShare(ctx context.Context, user *userpb.User, ref *ocm.
 }
 
 // UpdateShare updates the mode of the given share.
-func (sm *Manager) UpdateShare(ctx context.Context, user *userpb.User, ref *ocm.ShareReference, p *ocm.SharePermissions) (*ocm.Share, error) {
+func (sm *Manager) UpdateShare(ctx context.Context, user *userpb.User, ref *ocm.ShareReference, f ...*ocm.UpdateOCMShareRequest_UpdateField) (*ocm.Share, error) {
 	type paramsObj struct {
 		Ref *ocm.ShareReference   `json:"ref"`
 		P   *ocm.SharePermissions `json:"p"`
 	}
 	bodyObj := &paramsObj{
 		Ref: ref,
-		P:   p,
 	}
 	data, err := json.Marshal(bodyObj)
 	if err != nil {
@@ -227,8 +212,7 @@ func (sm *Manager) UpdateShare(ctx context.Context, user *userpb.User, ref *ocm.
 		return nil, err
 	}
 	return &ocm.Share{
-		Id:         altResult.ID,
-		ResourceId: altResult.ResourceID,
+		Id: altResult.ID,
 		Grantee: &provider.Grantee{
 			Id: altResult.Grantee.ID,
 		},
@@ -260,8 +244,7 @@ func (sm *Manager) ListShares(ctx context.Context, user *userpb.User, filters []
 	var lst = make([]*ocm.Share, 0, len(respArr))
 	for _, altResult := range respArr {
 		lst = append(lst, &ocm.Share{
-			Id:         altResult.ID,
-			ResourceId: altResult.ResourceID,
+			Id: altResult.ID,
 			Grantee: &provider.Grantee{
 				Id: altResult.Grantee.ID,
 			},
@@ -312,8 +295,8 @@ func (sm *Manager) ListReceivedShares(ctx context.Context, user *userpb.User) ([
 			continue
 		}
 		res = append(res, &ocm.ReceivedShare{
-			Id:         altResultShare.ID,
-			ResourceId: altResultShare.ResourceID,
+			Id:            altResultShare.ID,
+			RemoteShareId: altResultShare.RemoteShareID, // sic, see https://github.com/cs3org/reva/pull/3852#discussion_r1189681465
 			Grantee: &provider.Grantee{
 				Id: altResultShare.Grantee.ID,
 			},
@@ -350,8 +333,8 @@ func (sm *Manager) GetReceivedShare(ctx context.Context, user *userpb.User, ref 
 		}, nil
 	}
 	return &ocm.ReceivedShare{
-		Id:         altResultShare.ID,
-		ResourceId: altResultShare.ResourceID,
+		Id:            altResultShare.ID,
+		RemoteShareId: altResultShare.RemoteShareID, // sic, see https://github.com/cs3org/reva/pull/3852#discussion_r1189681465
 		Grantee: &provider.Grantee{
 			Id: altResultShare.Grantee.ID,
 		},
@@ -396,8 +379,8 @@ func (sm *Manager) UpdateReceivedShare(ctx context.Context, user *userpb.User, s
 		}, nil
 	}
 	return &ocm.ReceivedShare{
-		Id:         altResultShare.ID,
-		ResourceId: altResultShare.ResourceID,
+		Id:            altResultShare.ID,
+		RemoteShareId: altResultShare.RemoteShareID, // sic, see https://github.com/cs3org/reva/pull/3852#discussion_r1189681465
 		Grantee: &provider.Grantee{
 			Id: altResultShare.Grantee.ID,
 		},
@@ -410,10 +393,10 @@ func (sm *Manager) UpdateReceivedShare(ctx context.Context, user *userpb.User, s
 }
 
 func getUsername(user *userpb.User) string {
-	if len(user.Username) > 0 {
+	if user != nil && len(user.Username) > 0 {
 		return user.Username
 	}
-	if len(user.Id.OpaqueId) > 0 {
+	if user != nil && len(user.Id.OpaqueId) > 0 {
 		return user.Id.OpaqueId
 	}
 

@@ -32,7 +32,7 @@ import (
 	ocmpb "github.com/cs3org/go-cs3apis/cs3/sharing/ocm/v1beta1"
 	provider "github.com/cs3org/go-cs3apis/cs3/storage/provider/v1beta1"
 	typepb "github.com/cs3org/go-cs3apis/cs3/types/v1beta1"
-	"github.com/cs3org/reva/v2/internal/http/services/owncloud/ocdav"
+	"github.com/cs3org/reva/internal/http/services/owncloud/ocdav"
 	"github.com/cs3org/reva/v2/pkg/errtypes"
 	"github.com/cs3org/reva/v2/pkg/mime"
 	"github.com/cs3org/reva/v2/pkg/rgrpc/todo/pool"
@@ -40,8 +40,7 @@ import (
 	"github.com/cs3org/reva/v2/pkg/sharedconf"
 	"github.com/cs3org/reva/v2/pkg/storage"
 	"github.com/cs3org/reva/v2/pkg/storage/fs/registry"
-	"github.com/mitchellh/mapstructure"
-	"github.com/pkg/errors"
+	"github.com/cs3org/reva/v2/pkg/utils/cfg"
 	"github.com/studio-b12/gowebdav"
 )
 
@@ -55,34 +54,27 @@ type driver struct {
 }
 
 type config struct {
-	GatewaySVC string
+	GatewaySVC string `mapstructure:"gatewaysvc"`
 }
 
-func parseConfig(c map[string]interface{}) (*config, error) {
-	var conf config
-	err := mapstructure.Decode(c, &conf)
-	return &conf, err
-}
-
-func (c *config) init() {
+func (c *config) ApplyDefaults() {
 	c.GatewaySVC = sharedconf.GetGatewaySVC(c.GatewaySVC)
 }
 
 // New creates an OCM storage driver.
-func New(c map[string]interface{}) (storage.FS, error) {
-	conf, err := parseConfig(c)
-	if err != nil {
-		return nil, errors.Wrapf(err, "error decoding config")
+func New(ctx context.Context, m map[string]interface{}) (storage.FS, error) {
+	var c config
+	if err := cfg.Decode(m, &c); err != nil {
+		return nil, err
 	}
-	conf.init()
 
-	gateway, err := pool.GetGatewayServiceClient(pool.Endpoint(conf.GatewaySVC))
+	gateway, err := pool.GetGatewayServiceClient(pool.Endpoint(c.GatewaySVC))
 	if err != nil {
 		return nil, err
 	}
 
 	d := &driver{
-		c:       conf,
+		c:       &c,
 		gateway: gateway,
 	}
 

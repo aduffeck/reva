@@ -28,10 +28,11 @@ import (
 	"sync"
 
 	ocmprovider "github.com/cs3org/go-cs3apis/cs3/ocm/provider/v1beta1"
+	"github.com/cs3org/reva/v2/pkg/appctx"
 	"github.com/cs3org/reva/v2/pkg/errtypes"
 	"github.com/cs3org/reva/v2/pkg/ocm/provider"
 	"github.com/cs3org/reva/v2/pkg/ocm/provider/authorizer/registry"
-	"github.com/mitchellh/mapstructure"
+	"github.com/cs3org/reva/v2/pkg/utils/cfg"
 	"github.com/pkg/errors"
 )
 
@@ -40,13 +41,11 @@ func init() {
 }
 
 // New returns a new authorizer object.
-func New(m map[string]interface{}) (provider.Authorizer, error) {
-	c := &config{}
-	if err := mapstructure.Decode(m, c); err != nil {
-		err = errors.Wrap(err, "error decoding conf")
+func New(ctx context.Context, m map[string]interface{}) (provider.Authorizer, error) {
+	var c config
+	if err := cfg.Decode(m, &c); err != nil {
 		return nil, err
 	}
-	c.init()
 
 	f, err := os.ReadFile(c.Providers)
 	if err != nil {
@@ -60,7 +59,7 @@ func New(m map[string]interface{}) (provider.Authorizer, error) {
 
 	a := &authorizer{
 		providerIPs: sync.Map{},
-		conf:        c,
+		conf:        &c,
 	}
 	a.providers = a.getOCMProviders(providers)
 
@@ -72,7 +71,7 @@ type config struct {
 	VerifyRequestHostname bool   `mapstructure:"verify_request_hostname"`
 }
 
-func (c *config) init() {
+func (c *config) ApplyTemplates() {
 	if c.Providers == "" {
 		c.Providers = "/etc/revad/ocm-providers.json"
 	}
@@ -114,6 +113,7 @@ func (a *authorizer) GetInfoByDomain(ctx context.Context, domain string) (*ocmpr
 }
 
 func (a *authorizer) IsProviderAllowed(ctx context.Context, pi *ocmprovider.ProviderInfo) error {
+	log := appctx.GetLogger(ctx)
 	var err error
 	normalizedDomain, err := normalizeDomain(pi.Domain)
 	if err != nil {
@@ -142,6 +142,7 @@ func (a *authorizer) IsProviderAllowed(ctx context.Context, pi *ocmprovider.Prov
 
 	var ocmHost string
 	for _, p := range a.providers {
+		log.Debug().Msgf("Comparing '%s' to '%s'", p.Domain, normalizedDomain)
 		if p.Domain == normalizedDomain {
 			ocmHost, err = a.getOCMHost(p)
 			if err != nil {

@@ -27,7 +27,8 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/cs3org/reva/v2/internal/http/services/ocmd"
+	"github.com/cs3org/reva/internal/http/services/ocmd"
+	"github.com/cs3org/reva/v2/pkg/appctx"
 	"github.com/cs3org/reva/v2/pkg/errtypes"
 	"github.com/cs3org/reva/v2/pkg/rhttp"
 	"github.com/pkg/errors"
@@ -158,7 +159,7 @@ type NewShareRequest struct {
 	ShareWith         string         `json:"shareWith"`
 	Name              string         `json:"name"`
 	Description       string         `json:"description"`
-	ResourceID        string         `json:"resourceId"`
+	ProviderID        string         `json:"providerId"`
 	Owner             string         `json:"owner"`
 	Sender            string         `json:"sender"`
 	OwnerDisplayName  string         `json:"ownerDisplayName"`
@@ -195,6 +196,8 @@ func (c *OCMClient) NewShare(ctx context.Context, endpoint string, r *NewShareRe
 		return nil, err
 	}
 
+	log := appctx.GetLogger(ctx)
+	log.Debug().Msgf("Sending OCM /shares POST to %s: %s", url, body)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, body)
 	if err != nil {
 		return nil, errors.Wrap(err, "error creating request")
@@ -227,4 +230,51 @@ func (c *OCMClient) parseNewShareResponse(r *http.Response) (*NewShareResponse, 
 		return nil, errors.Wrap(err, "error decoding response body")
 	}
 	return nil, errtypes.InternalError(string(body))
+}
+
+// Capabilities contains a set of properties exposed by
+// a remote cloud storage.
+type Capabilities struct {
+	Enabled       bool   `json:"enabled"`
+	APIVersion    string `json:"apiVersion"`
+	EndPoint      string `json:"endPoint"`
+	Provider      string `json:"provider"`
+	ResourceTypes []struct {
+		Name       string   `json:"name"`
+		ShareTypes []string `json:"shareTypes"`
+		Protocols  struct {
+			Webdav *string `json:"webdav"`
+			Webapp *string `json:"webapp"`
+			Datatx *string `json:"datatx"`
+		} `json:"protocols"`
+	} `json:"resourceTypes"`
+	Capabilities []string `json:"capabilities"`
+}
+
+// Discovery returns a number of properties used to discover the capabilities offered by a remote cloud storage.
+// https://cs3org.github.io/OCM-API/docs.html?branch=develop&repo=OCM-API&user=cs3org#/paths/~1ocm-provider/get
+func (c *OCMClient) Discovery(ctx context.Context, endpoint string) (*Capabilities, error) {
+	url, err := url.JoinPath(endpoint, "shares")
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, errors.Wrap(err, "error creating request")
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, errors.Wrap(err, "error doing request")
+	}
+	defer resp.Body.Close()
+
+	var cap Capabilities
+	if err := json.NewDecoder(resp.Body).Decode(&c); err != nil {
+		return nil, err
+	}
+
+	return &cap, nil
 }

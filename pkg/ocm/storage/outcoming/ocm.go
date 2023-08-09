@@ -32,17 +32,17 @@ import (
 	rpcv1beta1 "github.com/cs3org/go-cs3apis/cs3/rpc/v1beta1"
 	ocmv1beta1 "github.com/cs3org/go-cs3apis/cs3/sharing/ocm/v1beta1"
 	provider "github.com/cs3org/go-cs3apis/cs3/storage/provider/v1beta1"
-	"github.com/cs3org/reva/v2/internal/http/services/datagateway"
-	"github.com/cs3org/reva/v2/internal/http/services/owncloud/ocs/conversions"
-	ctxpkg "github.com/cs3org/reva/v2/pkg/ctx"
-	"github.com/cs3org/reva/v2/pkg/errtypes"
-	"github.com/cs3org/reva/v2/pkg/rgrpc/todo/pool"
-	"github.com/cs3org/reva/v2/pkg/rhttp"
-	"github.com/cs3org/reva/v2/pkg/rhttp/router"
-	"github.com/cs3org/reva/v2/pkg/sharedconf"
-	"github.com/cs3org/reva/v2/pkg/storage"
-	"github.com/cs3org/reva/v2/pkg/storage/fs/registry"
-	"github.com/mitchellh/mapstructure"
+	"github.com/cs3org/reva/internal/http/services/datagateway"
+	"github.com/cs3org/reva/internal/http/services/owncloud/ocs/conversions"
+	ctxpkg "github.com/cs3org/reva/pkg/ctx"
+	"github.com/cs3org/reva/pkg/errtypes"
+	"github.com/cs3org/reva/pkg/rgrpc/todo/pool"
+	"github.com/cs3org/reva/pkg/rhttp"
+	"github.com/cs3org/reva/pkg/rhttp/router"
+	"github.com/cs3org/reva/pkg/sharedconf"
+	"github.com/cs3org/reva/pkg/storage"
+	"github.com/cs3org/reva/pkg/storage/fs/registry"
+	"github.com/cs3org/reva/pkg/utils/cfg"
 	"github.com/pkg/errors"
 	"google.golang.org/grpc/metadata"
 )
@@ -61,31 +61,24 @@ type config struct {
 	MachineSecret string `mapstructure:"machine_secret"`
 }
 
-func parseConfig(c map[string]interface{}) (*config, error) {
-	var conf config
-	err := mapstructure.Decode(c, &conf)
-	return &conf, err
-}
-
-func (c *config) init() {
+func (c *config) ApplyDefaults() {
 	c.GatewaySVC = sharedconf.GetGatewaySVC(c.GatewaySVC)
 }
 
 // New creates an OCM storage driver.
-func New(c map[string]interface{}) (storage.FS, error) {
-	conf, err := parseConfig(c)
-	if err != nil {
-		return nil, errors.Wrapf(err, "error decoding config")
+func New(ctx context.Context, m map[string]interface{}) (storage.FS, error) {
+	var c config
+	if err := cfg.Decode(m, &c); err != nil {
+		return nil, err
 	}
-	conf.init()
 
-	gateway, err := pool.GetGatewayServiceClient(pool.Endpoint(conf.GatewaySVC))
+	gateway, err := pool.GetGatewayServiceClient(pool.Endpoint(c.GatewaySVC))
 	if err != nil {
 		return nil, err
 	}
 
 	d := &driver{
-		c:       conf,
+		c:       &c,
 		gateway: gateway,
 	}
 
