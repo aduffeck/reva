@@ -30,12 +30,12 @@ import (
 	ocm "github.com/cs3org/go-cs3apis/cs3/sharing/ocm/v1beta1"
 	provider "github.com/cs3org/go-cs3apis/cs3/storage/provider/v1beta1"
 	typespb "github.com/cs3org/go-cs3apis/cs3/types/v1beta1"
-	"github.com/cs3org/reva/pkg/errtypes"
-	"github.com/cs3org/reva/pkg/ocm/share"
-	"github.com/cs3org/reva/pkg/ocm/share/repository/registry"
-	"github.com/cs3org/reva/pkg/utils"
-	"github.com/cs3org/reva/pkg/utils/cfg"
+	"github.com/cs3org/reva/v2/pkg/errtypes"
+	"github.com/cs3org/reva/v2/pkg/ocm/share"
+	"github.com/cs3org/reva/v2/pkg/ocm/share/repository/registry"
+	"github.com/cs3org/reva/v2/pkg/utils"
 	"github.com/google/uuid"
+	"github.com/mitchellh/mapstructure"
 	"github.com/pkg/errors"
 	"google.golang.org/genproto/protobuf/field_mask"
 )
@@ -45,11 +45,13 @@ func init() {
 }
 
 // New returns a new authorizer object.
-func New(ctx context.Context, m map[string]interface{}) (share.Repository, error) {
-	var c config
-	if err := cfg.Decode(m, &c); err != nil {
+func New(m map[string]interface{}) (share.Repository, error) {
+	c, err := parseConfig(m)
+	if err != nil {
+		err = errors.Wrap(err, "error creating a new manager")
 		return nil, err
 	}
+	c.init()
 
 	// load or create file
 	model, err := loadOrCreate(c.File)
@@ -59,7 +61,7 @@ func New(ctx context.Context, m map[string]interface{}) (share.Repository, error
 	}
 
 	mgr := &mgr{
-		c:     &c,
+		c:     c,
 		model: model,
 	}
 
@@ -168,7 +170,7 @@ type config struct {
 	File string `mapstructure:"file"`
 }
 
-func (c *config) ApplyDefaults() {
+func (c *config) init() {
 	if c.File == "" {
 		c.File = "/var/tmp/reva/ocm-shares.json"
 	}
@@ -213,6 +215,14 @@ func (m *mgr) load() error {
 
 	m.model = &model
 	return nil
+}
+
+func parseConfig(m map[string]interface{}) (*config, error) {
+	c := &config{}
+	if err := mapstructure.Decode(m, c); err != nil {
+		return nil, err
+	}
+	return c, nil
 }
 
 func genID() string {
@@ -369,11 +379,16 @@ func receivedShareEqual(ref *ocm.ShareReference, s *ocm.ReceivedShare) bool {
 		if ref.GetId().OpaqueId == s.Id.OpaqueId {
 			return true
 		}
+	} else if ref.GetKey() != nil {
+		if (utils.UserEqual(ref.GetKey().Owner, s.Owner) || utils.UserEqual(ref.GetKey().Owner, s.Creator)) &&
+			utils.ResourceIDEqual(ref.GetKey().ResourceId, s.ResourceId) && utils.GranteeEqual(ref.GetKey().Grantee, s.Grantee) {
+			return true
+		}
 	}
 	return false
 }
 
-func (m *mgr) UpdateShare(ctx context.Context, user *userpb.User, ref *ocm.ShareReference, f ...*ocm.UpdateOCMShareRequest_UpdateField) (*ocm.Share, error) {
+func (m *mgr) UpdateShare(ctx context.Context, user *userpb.User, ref *ocm.ShareReference, p *ocm.SharePermissions) (*ocm.Share, error) {
 	return nil, errtypes.NotSupported("not yet implemented")
 }
 

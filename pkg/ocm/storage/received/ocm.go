@@ -32,15 +32,16 @@ import (
 	ocmpb "github.com/cs3org/go-cs3apis/cs3/sharing/ocm/v1beta1"
 	provider "github.com/cs3org/go-cs3apis/cs3/storage/provider/v1beta1"
 	typepb "github.com/cs3org/go-cs3apis/cs3/types/v1beta1"
-	"github.com/cs3org/reva/internal/http/services/owncloud/ocdav"
-	"github.com/cs3org/reva/pkg/errtypes"
-	"github.com/cs3org/reva/pkg/mime"
-	"github.com/cs3org/reva/pkg/rgrpc/todo/pool"
-	"github.com/cs3org/reva/pkg/rhttp/router"
-	"github.com/cs3org/reva/pkg/sharedconf"
-	"github.com/cs3org/reva/pkg/storage"
-	"github.com/cs3org/reva/pkg/storage/fs/registry"
-	"github.com/cs3org/reva/pkg/utils/cfg"
+	"github.com/cs3org/reva/v2/internal/http/services/owncloud/ocdav"
+	"github.com/cs3org/reva/v2/pkg/errtypes"
+	"github.com/cs3org/reva/v2/pkg/mime"
+	"github.com/cs3org/reva/v2/pkg/rgrpc/todo/pool"
+	"github.com/cs3org/reva/v2/pkg/rhttp/router"
+	"github.com/cs3org/reva/v2/pkg/sharedconf"
+	"github.com/cs3org/reva/v2/pkg/storage"
+	"github.com/cs3org/reva/v2/pkg/storage/fs/registry"
+	"github.com/mitchellh/mapstructure"
+	"github.com/pkg/errors"
 	"github.com/studio-b12/gowebdav"
 )
 
@@ -54,27 +55,34 @@ type driver struct {
 }
 
 type config struct {
-	GatewaySVC string `mapstructure:"gatewaysvc"`
+	GatewaySVC string
 }
 
-func (c *config) ApplyDefaults() {
+func parseConfig(c map[string]interface{}) (*config, error) {
+	var conf config
+	err := mapstructure.Decode(c, &conf)
+	return &conf, err
+}
+
+func (c *config) init() {
 	c.GatewaySVC = sharedconf.GetGatewaySVC(c.GatewaySVC)
 }
 
 // New creates an OCM storage driver.
-func New(ctx context.Context, m map[string]interface{}) (storage.FS, error) {
-	var c config
-	if err := cfg.Decode(m, &c); err != nil {
-		return nil, err
+func New(c map[string]interface{}) (storage.FS, error) {
+	conf, err := parseConfig(c)
+	if err != nil {
+		return nil, errors.Wrapf(err, "error decoding config")
 	}
+	conf.init()
 
-	gateway, err := pool.GetGatewayServiceClient(pool.Endpoint(c.GatewaySVC))
+	gateway, err := pool.GetGatewayServiceClient(pool.Endpoint(conf.GatewaySVC))
 	if err != nil {
 		return nil, err
 	}
 
 	d := &driver{
-		c:       &c,
+		c:       conf,
 		gateway: gateway,
 	}
 

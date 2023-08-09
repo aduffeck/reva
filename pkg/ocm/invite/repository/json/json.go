@@ -29,13 +29,12 @@ import (
 
 	userpb "github.com/cs3org/go-cs3apis/cs3/identity/user/v1beta1"
 	invitepb "github.com/cs3org/go-cs3apis/cs3/ocm/invite/v1beta1"
-	"github.com/cs3org/reva/pkg/appctx"
-	"github.com/cs3org/reva/pkg/errtypes"
-	"github.com/cs3org/reva/pkg/ocm/invite"
-	"github.com/cs3org/reva/pkg/ocm/invite/repository/registry"
-	"github.com/cs3org/reva/pkg/utils"
-	"github.com/cs3org/reva/pkg/utils/cfg"
-	"github.com/cs3org/reva/pkg/utils/list"
+	"github.com/cs3org/reva/v2/pkg/appctx"
+	"github.com/cs3org/reva/v2/pkg/errtypes"
+	"github.com/cs3org/reva/v2/pkg/ocm/invite"
+	"github.com/cs3org/reva/v2/pkg/ocm/invite/repository/registry"
+	"github.com/cs3org/reva/v2/pkg/utils"
+	"github.com/mitchellh/mapstructure"
 	"github.com/pkg/errors"
 )
 
@@ -59,31 +58,45 @@ func init() {
 	registry.Register("json", New)
 }
 
-func (c *config) ApplyDefaults() {
+func (c *config) init() error {
 	if c.File == "" {
 		c.File = "/var/tmp/reva/ocm-invites.json"
 	}
+
+	return nil
 }
 
 // New returns a new invite manager object.
-func New(ctx context.Context, m map[string]interface{}) (invite.Repository, error) {
-	var c config
-	if err := cfg.Decode(m, &c); err != nil {
-		return nil, err
+func New(m map[string]interface{}) (invite.Repository, error) {
+	config, err := parseConfig(m)
+	if err != nil {
+		return nil, errors.Wrap(err, "error parsing config for json invite repository")
+	}
+	err = config.init()
+	if err != nil {
+		return nil, errors.Wrap(err, "error setting config defaults for json invite repository")
 	}
 
 	// load or create file
-	model, err := loadOrCreate(c.File)
+	model, err := loadOrCreate(config.File)
 	if err != nil {
 		return nil, errors.Wrap(err, "error loading the file containing the invites")
 	}
 
 	manager := &manager{
-		config: &c,
+		config: config,
 		model:  model,
 	}
 
 	return manager, nil
+}
+
+func parseConfig(m map[string]interface{}) (*config, error) {
+	c := &config{}
+	if err := mapstructure.Decode(m, c); err != nil {
+		return nil, err
+	}
+	return c, nil
 }
 
 func loadOrCreate(file string) (*inviteModel, error) {
@@ -225,24 +238,4 @@ func userContains(u *userpb.User, query string) bool {
 	query = strings.ToLower(query)
 	return strings.Contains(strings.ToLower(u.Username), query) || strings.Contains(strings.ToLower(u.DisplayName), query) ||
 		strings.Contains(strings.ToLower(u.Mail), query) || strings.Contains(strings.ToLower(u.Id.OpaqueId), query)
-}
-
-func (m *manager) DeleteRemoteUser(ctx context.Context, initiator *userpb.UserId, remoteUser *userpb.UserId) error {
-	m.Lock()
-	defer m.Unlock()
-
-	acceptedUsers, ok := m.model.AcceptedUsers[initiator.GetOpaqueId()]
-	if !ok {
-		return nil
-	}
-
-	for i, user := range acceptedUsers {
-		if (user.Id.GetOpaqueId() == remoteUser.OpaqueId) && (remoteUser.Idp == "" || user.Id.GetIdp() == remoteUser.Idp) {
-			acceptedUsers = list.Remove(acceptedUsers, i)
-			m.model.AcceptedUsers[initiator.GetOpaqueId()] = acceptedUsers
-			_ = m.model.save()
-			return nil
-		}
-	}
-	return nil
 }

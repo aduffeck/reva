@@ -24,18 +24,16 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"time"
 
 	userpb "github.com/cs3org/go-cs3apis/cs3/identity/user/v1beta1"
 	ocm "github.com/cs3org/go-cs3apis/cs3/sharing/ocm/v1beta1"
-	typesv1beta1 "github.com/cs3org/go-cs3apis/cs3/types/v1beta1"
-	"github.com/cs3org/reva/internal/http/services/owncloud/ocs/conversions"
-	"github.com/cs3org/reva/pkg/cbox/utils"
-	"github.com/cs3org/reva/pkg/errtypes"
-	"github.com/cs3org/reva/pkg/ocm/share"
-	"github.com/cs3org/reva/pkg/ocm/share/repository/registry"
-	"github.com/cs3org/reva/pkg/utils/cfg"
+	"github.com/cs3org/reva/v2/internal/http/services/owncloud/ocs/conversions"
+	"github.com/cs3org/reva/v2/pkg/cbox/utils"
+	"github.com/cs3org/reva/v2/pkg/errtypes"
+	"github.com/cs3org/reva/v2/pkg/ocm/share"
+	"github.com/cs3org/reva/v2/pkg/ocm/share/repository/registry"
 	"github.com/go-sql-driver/mysql"
+	"github.com/mitchellh/mapstructure"
 	"github.com/pkg/errors"
 	"google.golang.org/genproto/protobuf/field_mask"
 )
@@ -45,24 +43,10 @@ func init() {
 }
 
 // New creates a Repository with a SQL driver.
-func New(ctx context.Context, m map[string]interface{}) (share.Repository, error) {
-	var c config
-	if err := cfg.Decode(m, &c); err != nil {
+func New(c map[string]interface{}) (share.Repository, error) {
+	conf, err := parseConfig(c)
+	if err != nil {
 		return nil, err
-	}
-	return NewFromConfig(ctx, &c)
-}
-
-type mgr struct {
-	c   *config
-	db  *sql.DB
-	now func() time.Time
-}
-
-// NewFromConfig creates a Repository with a SQL driver using the given config.
-func NewFromConfig(ctx context.Context, conf *config) (share.Repository, error) {
-	if conf.now == nil {
-		conf.now = time.Now
 	}
 
 	db, err := sql.Open("mysql", fmt.Sprintf("%s:%s@tcp(%s)/%s", conf.DBUsername, conf.DBPassword, conf.DBAddress, conf.DBName))
@@ -71,11 +55,15 @@ func NewFromConfig(ctx context.Context, conf *config) (share.Repository, error) 
 	}
 
 	m := &mgr{
-		c:   conf,
-		db:  db,
-		now: conf.now,
+		c:  conf,
+		db: db,
 	}
 	return m, nil
+}
+
+type mgr struct {
+	c  *config
+	db *sql.DB
 }
 
 type config struct {
@@ -83,8 +71,14 @@ type config struct {
 	DBPassword string `mapstructure:"db_password"`
 	DBAddress  string `mapstructure:"db_address"`
 	DBName     string `mapstructure:"db_name"`
+}
 
-	now func() time.Time // set only from tests
+func parseConfig(conf map[string]interface{}) (*config, error) {
+	var c config
+	if err := mapstructure.Decode(conf, &c); err != nil {
+		return nil, errors.Wrap(err, "error decoding config")
+	}
+	return &c, nil
 }
 
 func formatUserID(u *userpb.UserId) string {
@@ -333,94 +327,8 @@ func (m *mgr) deleteByKey(ctx context.Context, user *userpb.User, key *ocm.Share
 }
 
 // UpdateShare updates the mode of the given share.
-func (m *mgr) UpdateShare(ctx context.Context, user *userpb.User, ref *ocm.ShareReference, f ...*ocm.UpdateOCMShareRequest_UpdateField) (*ocm.Share, error) {
-	switch {
-	case ref.GetId() != nil:
-		return m.updateShareByID(ctx, user, ref.GetId(), f...)
-	case ref.GetKey() != nil:
-		return m.updateShareByKey(ctx, user, ref.GetKey(), f...)
-	default:
-		return nil, errtypes.NotFound(ref.String())
-	}
-}
-
-func (m *mgr) queriesUpdatesOnShare(ctx context.Context, id *ocm.ShareId, f ...*ocm.UpdateOCMShareRequest_UpdateField) (string, []string, []any, [][]any, error) {
-	var qi strings.Builder
-	params := []any{}
-
-	qe := []string{}
-	eparams := [][]any{}
-
-	for _, field := range f {
-		switch u := field.Field.(type) {
-		case *ocm.UpdateOCMShareRequest_UpdateField_Expiration:
-			qi.WriteString("expiration=?")
-			params = append(params, u.Expiration.Seconds)
-		case *ocm.UpdateOCMShareRequest_UpdateField_AccessMethods:
-			// TODO: access method can be added or removed as well
-			// now they can only be updated
-			switch t := u.AccessMethods.Term.(type) {
-			case *ocm.AccessMethod_WebdavOptions:
-				q := "UPDATE ocm_access_method_webdav SET permissions=? WHERE ocm_access_method_id=(SELECT id FROM ocm_shares_access_methods WHERE ocm_share_id=? AND type=?)"
-				qe = append(qe, q)
-				eparams = append(eparams, []any{utils.SharePermToInt(t.WebdavOptions.Permissions), id.OpaqueId, WebDAVAccessMethod})
-			case *ocm.AccessMethod_WebappOptions:
-				q := "UPDATE ocm_access_method_webapp SET view_mode=? WHERE ocm_access_method_id=(SELECT id FROM ocm_shares_access_methods WHERE ocm_share_id=? AND type=?)"
-				qe = append(qe, q)
-				eparams = append(eparams, []any{t.WebappOptions.ViewMode, id.OpaqueId, WebappAccessMethod})
-			}
-		}
-	}
-	return qi.String(), qe, params, eparams, nil
-}
-
-func (m *mgr) updateShareByID(ctx context.Context, user *userpb.User, id *ocm.ShareId, f ...*ocm.UpdateOCMShareRequest_UpdateField) (*ocm.Share, error) {
-	var query strings.Builder
-
-	now := m.now().Unix()
-	query.WriteString("UPDATE ocm_shares SET ")
-	params := []any{}
-
-	squery, am, sparams, paramsAm, err := m.queriesUpdatesOnShare(ctx, id, f...)
-	if err != nil {
-		return nil, err
-	}
-
-	if squery != "" {
-		query.WriteString(squery)
-		query.WriteString(", ")
-	}
-
-	query.WriteString("mtime=? WHERE id=? AND (initiator=? OR owner=?)")
-	params = append(params, sparams...)
-	params = append(params, now, id.OpaqueId, user.Id.OpaqueId, user.Id.OpaqueId)
-
-	if err := transaction(ctx, m.db, func(tx *sql.Tx) error {
-		if _, err := tx.ExecContext(ctx, query.String(), params...); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return share.ErrShareNotFound
-			}
-		}
-
-		for i, q := range am {
-			if _, err := tx.ExecContext(ctx, q, paramsAm[i]...); err != nil {
-				return err
-			}
-		}
-		return nil
-	}); err != nil {
-		return nil, err
-	}
-
-	return m.getByID(ctx, user, id)
-}
-
-func (m *mgr) updateShareByKey(ctx context.Context, user *userpb.User, key *ocm.ShareKey, f ...*ocm.UpdateOCMShareRequest_UpdateField) (*ocm.Share, error) {
-	share, err := m.getByKey(ctx, user, key)
-	if err != nil {
-		return nil, err
-	}
-	return m.updateShareByID(ctx, user, share.Id, f...)
+func (m *mgr) UpdateShare(ctx context.Context, user *userpb.User, ref *ocm.ShareReference, p *ocm.SharePermissions) (*ocm.Share, error) {
+	return nil, errtypes.NotSupported("not yet implemented")
 }
 
 func translateFilters(filters []*ocm.ListOCMSharesRequest_Filter) (string, []any, error) {
@@ -605,8 +513,8 @@ func storeProtocol(tx *sql.Tx, shareID int64, p Protocol) (int64, error) {
 // StoreReceivedShare stores a received share.
 func (m *mgr) StoreReceivedShare(ctx context.Context, s *ocm.ReceivedShare) (*ocm.ReceivedShare, error) {
 	if err := transaction(ctx, m.db, func(tx *sql.Tx) error {
-		query := "INSERT INTO ocm_received_shares SET name=?,remote_share_id=?,item_type=?,share_with=?,owner=?,initiator=?,ctime=?,mtime=?,type=?,state=?"
-		params := []any{s.Name, s.RemoteShareId, convertFromCS3ResourceType(s.ResourceType), s.Grantee.GetUserId().OpaqueId, formatUserID(s.Owner), formatUserID(s.Creator), s.Ctime.Seconds, s.Mtime.Seconds, convertFromCS3OCMShareType(s.ShareType), convertFromCS3OCMShareState(s.State)}
+		query := "INSERT INTO ocm_received_shares SET name=?,fileid_prefix=?,item_source=?,item_type=?,share_with=?,owner=?,initiator=?,ctime=?,mtime=?,type=?,state=?"
+		params := []any{s.Name, s.ResourceId.StorageId, s.ResourceId.OpaqueId, convertFromCS3ResourceType(s.ResourceType), s.Grantee.GetUserId().OpaqueId, formatUserID(s.Owner), formatUserID(s.Creator), s.Ctime.Seconds, s.Mtime.Seconds, convertFromCS3OCMShareType(s.ShareType), convertFromCS3OCMShareState(s.State)}
 
 		if s.Expiration != nil {
 			query += ",expiration=?"
@@ -657,7 +565,7 @@ func (m *mgr) StoreReceivedShare(ctx context.Context, s *ocm.ReceivedShare) (*oc
 
 // ListReceivedShares returns the list of shares the user has access.
 func (m *mgr) ListReceivedShares(ctx context.Context, user *userpb.User) ([]*ocm.ReceivedShare, error) {
-	query := "SELECT id, name, remote_share_id, item_type, share_with, owner, initiator, ctime, mtime, expiration, type, state FROM ocm_received_shares WHERE share_with=?"
+	query := "SELECT id, name, fileid_prefix, item_source, item_type, share_with, owner, initiator, ctime, mtime, expiration, type, state FROM ocm_received_shares WHERE share_with=?"
 
 	rows, err := m.db.QueryContext(ctx, query, user.Id.OpaqueId)
 	if err != nil {
@@ -668,7 +576,7 @@ func (m *mgr) ListReceivedShares(ctx context.Context, user *userpb.User) ([]*ocm
 	shares := []*ocm.ReceivedShare{}
 	var ids []any
 	for rows.Next() {
-		if err := rows.Scan(&s.ID, &s.Name, &s.RemoteShareID, &s.ItemType, &s.ShareWith, &s.Owner, &s.Initiator, &s.Ctime, &s.Mtime, &s.Expiration, &s.Type, &s.State); err != nil {
+		if err := rows.Scan(&s.ID, &s.Name, &s.Prefix, &s.ItemSource, &s.ItemType, &s.ShareWith, &s.Owner, &s.Initiator, &s.Ctime, &s.Mtime, &s.Expiration, &s.Type, &s.State); err != nil {
 			continue
 		}
 		shares = append(shares, convertToCS3OCMReceivedShare(&s, nil))
@@ -725,6 +633,8 @@ func (m *mgr) GetReceivedShare(ctx context.Context, user *userpb.User, ref *ocm.
 	switch {
 	case ref.GetId() != nil:
 		s, err = m.getReceivedByID(ctx, user, ref.GetId())
+	case ref.GetKey() != nil:
+		s, err = m.getReceivedByKey(ctx, user, ref.GetKey())
 	default:
 		err = errtypes.NotFound(ref.String())
 	}
@@ -733,11 +643,31 @@ func (m *mgr) GetReceivedShare(ctx context.Context, user *userpb.User, ref *ocm.
 }
 
 func (m *mgr) getReceivedByID(ctx context.Context, user *userpb.User, id *ocm.ShareId) (*ocm.ReceivedShare, error) {
-	query := "SELECT id, name, remote_share_id, item_type, share_with, owner, initiator, ctime, mtime, expiration, type, state FROM ocm_received_shares WHERE id=? AND share_with=?"
+	query := "SELECT id, name, fileid_prefix, item_source, item_type, share_with, owner, initiator, ctime, mtime, expiration, type, state FROM ocm_received_shares WHERE id=? AND share_with=?"
 	params := []any{id.OpaqueId, user.Id.OpaqueId}
 
 	var s dbReceivedShare
-	if err := m.db.QueryRowContext(ctx, query, params...).Scan(&s.ID, &s.Name, &s.RemoteShareID, &s.ItemType, &s.ShareWith, &s.Owner, &s.Initiator, &s.Ctime, &s.Mtime, &s.Expiration, &s.Type, &s.State); err != nil {
+	if err := m.db.QueryRowContext(ctx, query, params...).Scan(&s.ID, &s.Name, &s.Prefix, &s.ItemSource, &s.ItemType, &s.ShareWith, &s.Owner, &s.Initiator, &s.Ctime, &s.Mtime, &s.Expiration, &s.Type, &s.State); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, share.ErrShareNotFound
+		}
+		return nil, err
+	}
+
+	p, err := m.getProtocols(ctx, s.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	return convertToCS3OCMReceivedShare(&s, p), nil
+}
+
+func (m *mgr) getReceivedByKey(ctx context.Context, user *userpb.User, key *ocm.ShareKey) (*ocm.ReceivedShare, error) {
+	query := "SELECT id, name, fileid_prefix, item_source, item_type, share_with, owner, initiator, ctime, mtime, expiration, type, state FROM ocm_received_shares WHERE owner=? AND fileid_prefix=? AND item_source=? AND share_with=?"
+	params := []any{formatUserID(key.Owner), key.ResourceId.StorageId, key.ResourceId.OpaqueId, key.Grantee.GetUserId().OpaqueId}
+
+	var s dbReceivedShare
+	if err := m.db.QueryRowContext(ctx, query, params...).Scan(&s.ID, &s.Name, &s.Prefix, &s.ItemSource, &s.ItemType, &s.ShareWith, &s.Owner, &s.Initiator, &s.Ctime, &s.Mtime, &s.Expiration, &s.Type, &s.State); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, share.ErrShareNotFound
 		}
@@ -772,55 +702,6 @@ func (m *mgr) getProtocols(ctx context.Context, id int) ([]*ocm.Protocol, error)
 }
 
 // UpdateReceivedShare updates the received share with share state.
-func (m *mgr) UpdateReceivedShare(ctx context.Context, user *userpb.User, s *ocm.ReceivedShare, fieldMask *field_mask.FieldMask) (*ocm.ReceivedShare, error) {
-	query := "UPDATE ocm_received_shares SET"
-	params := []any{}
-
-	fquery, fparams, updatedShare, err := m.translateUpdateFieldMask(s, fieldMask)
-	if err != nil {
-		return nil, err
-	}
-
-	query = fmt.Sprintf("%s %s WHERE id=?", query, fquery)
-	params = append(params, fparams...)
-	params = append(params, s.Id.OpaqueId)
-
-	res, err := m.db.ExecContext(ctx, query, params...)
-	if err != nil {
-		return nil, err
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return nil, share.ErrShareNotFound
-	}
-	return updatedShare, nil
-}
-
-func (m *mgr) translateUpdateFieldMask(share *ocm.ReceivedShare, fieldMask *field_mask.FieldMask) (string, []any, *ocm.ReceivedShare, error) {
-	var (
-		query  strings.Builder
-		params []any
-	)
-
-	newShare := *share
-
-	for _, mask := range fieldMask.Paths {
-		switch mask {
-		case "state":
-			query.WriteString("state=?")
-			params = append(params, convertFromCS3OCMShareState(share.State))
-			newShare.State = share.State
-		default:
-			return "", nil, nil, errtypes.NotSupported("updating " + mask + " is not supported")
-		}
-		query.WriteString(",")
-	}
-
-	now := m.now().Unix()
-	query.WriteString("mtime=?")
-	params = append(params, now)
-	newShare.Mtime = &typesv1beta1.Timestamp{
-		Seconds: uint64(now),
-	}
-
-	return query.String(), params, &newShare, nil
+func (m *mgr) UpdateReceivedShare(ctx context.Context, user *userpb.User, share *ocm.ReceivedShare, fieldMask *field_mask.FieldMask) (*ocm.ReceivedShare, error) {
+	return nil, errtypes.NotSupported("not yet implemented")
 }

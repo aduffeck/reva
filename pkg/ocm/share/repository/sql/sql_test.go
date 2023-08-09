@@ -25,18 +25,15 @@ import (
 	"strconv"
 	"sync"
 	"testing"
-	"time"
 
 	appprovider "github.com/cs3org/go-cs3apis/cs3/app/provider/v1beta1"
 	userpb "github.com/cs3org/go-cs3apis/cs3/identity/user/v1beta1"
 	ocm "github.com/cs3org/go-cs3apis/cs3/sharing/ocm/v1beta1"
 	providerv1beta1 "github.com/cs3org/go-cs3apis/cs3/storage/provider/v1beta1"
 	typesv1beta1 "github.com/cs3org/go-cs3apis/cs3/types/v1beta1"
-	"github.com/cs3org/reva/internal/http/services/owncloud/ocs/conversions"
-	"google.golang.org/genproto/protobuf/field_mask"
-	"google.golang.org/protobuf/types/known/fieldmaskpb"
+	"github.com/cs3org/reva/v2/internal/http/services/owncloud/ocs/conversions"
 
-	"github.com/cs3org/reva/pkg/ocm/share"
+	"github.com/cs3org/reva/v2/pkg/ocm/share"
 	sqle "github.com/dolthub/go-mysql-server"
 	"github.com/dolthub/go-mysql-server/memory"
 	"github.com/dolthub/go-mysql-server/server"
@@ -66,7 +63,6 @@ func startDatabase(ctx *sql.Context, tables map[string]*memory.Table) (engine *s
 	defer m.Unlock()
 
 	db := memory.NewDatabase(dbName)
-	db.EnablePrimaryKeyIndexes()
 	for name, table := range tables {
 		db.AddTable(name, table)
 	}
@@ -136,9 +132,8 @@ func createShareTables(ctx *sql.Context, initData []*ocm.Share) map[string]*memo
 	var fkAccessMethods memory.ForeignKeyCollection
 	fkAccessMethods.AddFK(sql.ForeignKeyConstraint{
 		Columns:       []string{"ocm_share_id"},
-		ParentTable:   ocmShareTable,
+		ParentTable:   "ocm_shares",
 		ParentColumns: []string{"id"},
-		OnDelete:      sql.ForeignKeyReferentialAction_Cascade,
 	})
 	accessMethods := memory.NewTable(ocmAccessMethodTable, sql.NewPrimaryKeySchema(sql.Schema{
 		{Name: "id", Type: sql.Int64, Nullable: false, Source: ocmAccessMethodTable, PrimaryKey: true, AutoIncrement: true},
@@ -157,7 +152,6 @@ func createShareTables(ctx *sql.Context, initData []*ocm.Share) map[string]*memo
 		Columns:       []string{"ocm_access_method_id"},
 		ParentTable:   ocmAccessMethodTable,
 		ParentColumns: []string{"id"},
-		OnDelete:      sql.ForeignKeyReferentialAction_Cascade,
 	})
 
 	webdav := memory.NewTable(ocmAMWebDAVTable, sql.NewPrimaryKeySchema(sql.Schema{
@@ -207,7 +201,8 @@ func createReceivedShareTables(ctx *sql.Context, initData []*ocm.ReceivedShare) 
 	tableShares := memory.NewTable(ocmReceivedShareTable, sql.NewPrimaryKeySchema(sql.Schema{
 		{Name: "id", Type: sql.Int64, Nullable: false, Source: ocmReceivedShareTable, PrimaryKey: true, AutoIncrement: true},
 		{Name: "name", Type: sql.Text, Nullable: false, Source: ocmReceivedShareTable},
-		{Name: "remote_share_id", Type: sql.Text, Nullable: false, Source: ocmReceivedShareTable},
+		{Name: "fileid_prefix", Type: sql.Text, Nullable: false, Source: ocmReceivedShareTable},
+		{Name: "item_source", Type: sql.Text, Nullable: false, Source: ocmReceivedShareTable},
 		{Name: "item_type", Type: sql.Int8, Nullable: false, Source: ocmReceivedShareTable},
 		{Name: "share_with", Type: sql.Text, Nullable: false, Source: ocmReceivedShareTable},
 		{Name: "owner", Type: sql.Text, Nullable: false, Source: ocmReceivedShareTable},
@@ -226,7 +221,6 @@ func createReceivedShareTables(ctx *sql.Context, initData []*ocm.ReceivedShare) 
 		Columns:       []string{"ocm_received_share_id"},
 		ParentTable:   "ocm_received_shares",
 		ParentColumns: []string{"id"},
-		OnDelete:      sql.ForeignKeyReferentialAction_Cascade,
 	})
 	protocols := memory.NewTable(ocmReceivedProtocols, sql.NewPrimaryKeySchema(sql.Schema{
 		{Name: "id", Type: sql.Int64, Nullable: false, Source: ocmReceivedProtocols, PrimaryKey: true, AutoIncrement: true},
@@ -241,7 +235,6 @@ func createReceivedShareTables(ctx *sql.Context, initData []*ocm.ReceivedShare) 
 		Columns:       []string{"ocm_protocol_id"},
 		ParentTable:   ocmReceivedProtocols,
 		ParentColumns: []string{"id"},
-		OnDelete:      sql.ForeignKeyReferentialAction_Cascade,
 	})
 	webdav := memory.NewTable(ocmProtWebDAVTable, sql.NewPrimaryKeySchema(sql.Schema{
 		{Name: "ocm_protocol_id", Type: sql.Int64, Source: ocmProtWebDAVTable, PrimaryKey: true, AutoIncrement: true},
@@ -275,7 +268,7 @@ func createReceivedShareTables(ctx *sql.Context, initData []*ocm.ReceivedShare) 
 			expiration = share.Expiration.Seconds
 		}
 
-		must(tableShares.Insert(ctx, sql.NewRow(mustInt(share.Id.OpaqueId), share.Name, share.RemoteShareId, int8(convertFromCS3ResourceType(share.ResourceType)), share.Grantee.GetUserId().OpaqueId, fmt.Sprintf("%s@%s", share.Owner.OpaqueId, share.Owner.Idp), fmt.Sprintf("%s@%s", share.Creator.OpaqueId, share.Creator.Idp), share.Ctime.Seconds, share.Mtime.Seconds, expiration, int8(convertFromCS3OCMShareType(share.ShareType)), int8(convertFromCS3OCMShareState(share.State)))))
+		must(tableShares.Insert(ctx, sql.NewRow(mustInt(share.Id.OpaqueId), share.Name, share.ResourceId.StorageId, share.ResourceId.OpaqueId, int8(convertFromCS3ResourceType(share.ResourceType)), share.Grantee.GetUserId().OpaqueId, fmt.Sprintf("%s@%s", share.Owner.OpaqueId, share.Owner.Idp), fmt.Sprintf("%s@%s", share.Creator.OpaqueId, share.Creator.Idp), share.Ctime.Seconds, share.Mtime.Seconds, expiration, int8(convertFromCS3OCMShareType(share.ShareType)), int8(convertFromCS3OCMShareState(share.State)))))
 
 		for _, p := range share.Protocols {
 			i := id()
@@ -615,7 +608,7 @@ func TestGetShare(t *testing.T) {
 			_, port, cleanup := startDatabase(ctx, tables)
 			t.Cleanup(cleanup)
 
-			r, err := New(context.Background(), map[string]interface{}{
+			r, err := New(map[string]interface{}{
 				"db_username": "root",
 				"db_password": "",
 				"db_address":  fmt.Sprintf("%s:%d", address, port),
@@ -1054,7 +1047,7 @@ func TestListShares(t *testing.T) {
 			_, port, cleanup := startDatabase(ctx, tables)
 			t.Cleanup(cleanup)
 
-			r, err := New(context.Background(), map[string]interface{}{
+			r, err := New(map[string]interface{}{
 				"db_username": "root",
 				"db_password": "",
 				"db_address":  fmt.Sprintf("%s:%d", address, port),
@@ -1246,7 +1239,7 @@ func TestStoreShare(t *testing.T) {
 			engine, port, cleanup := startDatabase(ctx, tables)
 			t.Cleanup(cleanup)
 
-			r, err := New(context.Background(), map[string]interface{}{
+			r, err := New(map[string]interface{}{
 				"db_username": "root",
 				"db_password": "",
 				"db_address":  fmt.Sprintf("%s:%d", address, port),
@@ -1260,280 +1253,6 @@ func TestStoreShare(t *testing.T) {
 			_, err = r.StoreShare(context.TODO(), tt.toStore)
 			if err != tt.err {
 				t.Fatalf("not expected error getting share. got=%+v expected=%+v", err, tt.err)
-			}
-
-			if tt.err == nil {
-				checkShares(ctx, engine, tt.expected, t)
-			}
-		})
-	}
-}
-
-func TestUpdateShare(t *testing.T) {
-	fixedTime := time.Date(2023, time.December, 12, 12, 12, 0, 0, time.UTC)
-
-	tests := []struct {
-		description string
-		init        []*ocm.Share
-		user        *userpb.User
-		ref         *ocm.ShareReference
-		fields      []*ocm.UpdateOCMShareRequest_UpdateField
-		err         error
-		expected    storeShareExpected
-	}{
-		{
-			description: "update only expiration - by id",
-			init: []*ocm.Share{
-				{
-					Id:         &ocm.ShareId{OpaqueId: "10"},
-					ResourceId: &providerv1beta1.ResourceId{StorageId: "storage", OpaqueId: "resource-id1"},
-					Name:       "file-name",
-					Token:      "qwerty",
-					Grantee:    &providerv1beta1.Grantee{Type: providerv1beta1.GranteeType_GRANTEE_TYPE_USER, Id: &providerv1beta1.Grantee_UserId{UserId: &userpb.UserId{Idp: "cesnet", OpaqueId: "richard", Type: userpb.UserType_USER_TYPE_FEDERATED}}},
-					Owner:      &userpb.UserId{OpaqueId: "einstein"},
-					Creator:    &userpb.UserId{OpaqueId: "marie"},
-					Ctime:      &typesv1beta1.Timestamp{Seconds: 1686061921},
-					Mtime:      &typesv1beta1.Timestamp{Seconds: 1686061921},
-					ShareType:  ocm.ShareType_SHARE_TYPE_USER,
-					AccessMethods: []*ocm.AccessMethod{
-						share.NewWebDavAccessMethod(conversions.NewViewerRole().CS3ResourcePermissions()),
-						share.NewWebappAccessMethod(appprovider.ViewMode_VIEW_MODE_READ_ONLY),
-					},
-				},
-			},
-			user:   &userpb.User{Id: &userpb.UserId{OpaqueId: "marie"}},
-			ref:    &ocm.ShareReference{Spec: &ocm.ShareReference_Id{Id: &ocm.ShareId{OpaqueId: "10"}}},
-			fields: []*ocm.UpdateOCMShareRequest_UpdateField{{Field: &ocm.UpdateOCMShareRequest_UpdateField_Expiration{Expiration: &typesv1beta1.Timestamp{Seconds: uint64(fixedTime.Unix())}}}},
-			expected: storeShareExpected{
-				shares: []sql.Row{{int64(10), "qwerty", "storage", "resource-id1", "file-name", "richard@cesnet", "einstein", "marie", uint64(1686061921), uint64(fixedTime.Unix()), uint64(fixedTime.Unix()), int8(0)}},
-				accessmethods: []sql.Row{
-					{int64(1), int64(10), int8(0)},
-					{int64(2), int64(10), int8(1)},
-				},
-				webdav: []sql.Row{{int64(1), int64(1)}},
-				webapp: []sql.Row{{int64(2), int8(2)}},
-			},
-		},
-		{
-			description: "update access methods - by id",
-			init: []*ocm.Share{
-				{
-					Id:         &ocm.ShareId{OpaqueId: "10"},
-					ResourceId: &providerv1beta1.ResourceId{StorageId: "storage", OpaqueId: "resource-id1"},
-					Name:       "file-name",
-					Token:      "qwerty",
-					Grantee:    &providerv1beta1.Grantee{Type: providerv1beta1.GranteeType_GRANTEE_TYPE_USER, Id: &providerv1beta1.Grantee_UserId{UserId: &userpb.UserId{Idp: "cesnet", OpaqueId: "richard", Type: userpb.UserType_USER_TYPE_FEDERATED}}},
-					Owner:      &userpb.UserId{OpaqueId: "einstein"},
-					Creator:    &userpb.UserId{OpaqueId: "marie"},
-					Ctime:      &typesv1beta1.Timestamp{Seconds: 1686061921},
-					Mtime:      &typesv1beta1.Timestamp{Seconds: 1686061921},
-					ShareType:  ocm.ShareType_SHARE_TYPE_USER,
-					AccessMethods: []*ocm.AccessMethod{
-						share.NewWebDavAccessMethod(conversions.NewViewerRole().CS3ResourcePermissions()),
-						share.NewWebappAccessMethod(appprovider.ViewMode_VIEW_MODE_READ_ONLY),
-					},
-				},
-			},
-			user: &userpb.User{Id: &userpb.UserId{OpaqueId: "marie"}},
-			ref:  &ocm.ShareReference{Spec: &ocm.ShareReference_Id{Id: &ocm.ShareId{OpaqueId: "10"}}},
-			fields: []*ocm.UpdateOCMShareRequest_UpdateField{
-				{
-					Field: &ocm.UpdateOCMShareRequest_UpdateField_AccessMethods{
-						AccessMethods: share.NewWebDavAccessMethod(conversions.NewEditorRole().CS3ResourcePermissions()),
-					},
-				},
-				{
-					Field: &ocm.UpdateOCMShareRequest_UpdateField_AccessMethods{
-						AccessMethods: share.NewWebappAccessMethod(appprovider.ViewMode_VIEW_MODE_READ_WRITE),
-					},
-				},
-			},
-			expected: storeShareExpected{
-				shares: []sql.Row{{int64(10), "qwerty", "storage", "resource-id1", "file-name", "richard@cesnet", "einstein", "marie", uint64(1686061921), uint64(fixedTime.Unix()), uint64(0), int8(0)}},
-				accessmethods: []sql.Row{
-					{int64(1), int64(10), int8(0)},
-					{int64(2), int64(10), int8(1)},
-				},
-				webdav: []sql.Row{{int64(1), int64(15)}},
-				webapp: []sql.Row{{int64(2), int8(3)}},
-			},
-		},
-		{
-			description: "update only expiration - by key",
-			init: []*ocm.Share{
-				{
-					Id:         &ocm.ShareId{OpaqueId: "10"},
-					ResourceId: &providerv1beta1.ResourceId{StorageId: "storage", OpaqueId: "resource-id1"},
-					Name:       "file-name",
-					Token:      "qwerty",
-					Grantee:    &providerv1beta1.Grantee{Type: providerv1beta1.GranteeType_GRANTEE_TYPE_USER, Id: &providerv1beta1.Grantee_UserId{UserId: &userpb.UserId{Idp: "cesnet", OpaqueId: "richard", Type: userpb.UserType_USER_TYPE_FEDERATED}}},
-					Owner:      &userpb.UserId{OpaqueId: "einstein"},
-					Creator:    &userpb.UserId{OpaqueId: "marie"},
-					Ctime:      &typesv1beta1.Timestamp{Seconds: 1686061921},
-					Mtime:      &typesv1beta1.Timestamp{Seconds: 1686061921},
-					ShareType:  ocm.ShareType_SHARE_TYPE_USER,
-					AccessMethods: []*ocm.AccessMethod{
-						share.NewWebDavAccessMethod(conversions.NewViewerRole().CS3ResourcePermissions()),
-						share.NewWebappAccessMethod(appprovider.ViewMode_VIEW_MODE_READ_ONLY),
-					},
-				},
-			},
-			user: &userpb.User{Id: &userpb.UserId{OpaqueId: "marie"}},
-			ref: &ocm.ShareReference{Spec: &ocm.ShareReference_Key{Key: &ocm.ShareKey{
-				Owner:      &userpb.UserId{OpaqueId: "einstein"},
-				ResourceId: &providerv1beta1.ResourceId{StorageId: "storage", OpaqueId: "resource-id1"},
-				Grantee:    &providerv1beta1.Grantee{Type: providerv1beta1.GranteeType_GRANTEE_TYPE_USER, Id: &providerv1beta1.Grantee_UserId{UserId: &userpb.UserId{Idp: "cesnet", OpaqueId: "richard", Type: userpb.UserType_USER_TYPE_FEDERATED}}},
-			}}},
-			fields: []*ocm.UpdateOCMShareRequest_UpdateField{{Field: &ocm.UpdateOCMShareRequest_UpdateField_Expiration{Expiration: &typesv1beta1.Timestamp{Seconds: uint64(fixedTime.Unix())}}}},
-			expected: storeShareExpected{
-				shares: []sql.Row{{int64(10), "qwerty", "storage", "resource-id1", "file-name", "richard@cesnet", "einstein", "marie", uint64(1686061921), uint64(fixedTime.Unix()), uint64(fixedTime.Unix()), int8(0)}},
-				accessmethods: []sql.Row{
-					{int64(1), int64(10), int8(0)},
-					{int64(2), int64(10), int8(1)},
-				},
-				webdav: []sql.Row{{int64(1), int64(1)}},
-				webapp: []sql.Row{{int64(2), int8(2)}},
-			},
-		},
-		{
-			description: "update access methods - by key",
-			init: []*ocm.Share{
-				{
-					Id:         &ocm.ShareId{OpaqueId: "10"},
-					ResourceId: &providerv1beta1.ResourceId{StorageId: "storage", OpaqueId: "resource-id1"},
-					Name:       "file-name",
-					Token:      "qwerty",
-					Grantee:    &providerv1beta1.Grantee{Type: providerv1beta1.GranteeType_GRANTEE_TYPE_USER, Id: &providerv1beta1.Grantee_UserId{UserId: &userpb.UserId{Idp: "cesnet", OpaqueId: "richard", Type: userpb.UserType_USER_TYPE_FEDERATED}}},
-					Owner:      &userpb.UserId{OpaqueId: "einstein"},
-					Creator:    &userpb.UserId{OpaqueId: "marie"},
-					Ctime:      &typesv1beta1.Timestamp{Seconds: 1686061921},
-					Mtime:      &typesv1beta1.Timestamp{Seconds: 1686061921},
-					ShareType:  ocm.ShareType_SHARE_TYPE_USER,
-					AccessMethods: []*ocm.AccessMethod{
-						share.NewWebDavAccessMethod(conversions.NewViewerRole().CS3ResourcePermissions()),
-						share.NewWebappAccessMethod(appprovider.ViewMode_VIEW_MODE_READ_ONLY),
-					},
-				},
-			},
-			user: &userpb.User{Id: &userpb.UserId{OpaqueId: "marie"}},
-			ref: &ocm.ShareReference{Spec: &ocm.ShareReference_Key{Key: &ocm.ShareKey{
-				Owner:      &userpb.UserId{OpaqueId: "einstein"},
-				ResourceId: &providerv1beta1.ResourceId{StorageId: "storage", OpaqueId: "resource-id1"},
-				Grantee:    &providerv1beta1.Grantee{Type: providerv1beta1.GranteeType_GRANTEE_TYPE_USER, Id: &providerv1beta1.Grantee_UserId{UserId: &userpb.UserId{Idp: "cesnet", OpaqueId: "richard", Type: userpb.UserType_USER_TYPE_FEDERATED}}},
-			}}},
-			fields: []*ocm.UpdateOCMShareRequest_UpdateField{
-				{
-					Field: &ocm.UpdateOCMShareRequest_UpdateField_AccessMethods{
-						AccessMethods: share.NewWebDavAccessMethod(conversions.NewEditorRole().CS3ResourcePermissions()),
-					},
-				},
-				{
-					Field: &ocm.UpdateOCMShareRequest_UpdateField_AccessMethods{
-						AccessMethods: share.NewWebappAccessMethod(appprovider.ViewMode_VIEW_MODE_READ_WRITE),
-					},
-				},
-			},
-			expected: storeShareExpected{
-				shares: []sql.Row{{int64(10), "qwerty", "storage", "resource-id1", "file-name", "richard@cesnet", "einstein", "marie", uint64(1686061921), uint64(fixedTime.Unix()), uint64(0), int8(0)}},
-				accessmethods: []sql.Row{
-					{int64(1), int64(10), int8(0)},
-					{int64(2), int64(10), int8(1)},
-				},
-				webdav: []sql.Row{{int64(1), int64(15)}},
-				webapp: []sql.Row{{int64(2), int8(3)}},
-			},
-		},
-		{
-			description: "update only expiration - id not exists",
-			init: []*ocm.Share{
-				{
-					Id:         &ocm.ShareId{OpaqueId: "10"},
-					ResourceId: &providerv1beta1.ResourceId{StorageId: "storage", OpaqueId: "resource-id1"},
-					Name:       "file-name",
-					Token:      "qwerty",
-					Grantee:    &providerv1beta1.Grantee{Type: providerv1beta1.GranteeType_GRANTEE_TYPE_USER, Id: &providerv1beta1.Grantee_UserId{UserId: &userpb.UserId{Idp: "cesnet", OpaqueId: "richard", Type: userpb.UserType_USER_TYPE_FEDERATED}}},
-					Owner:      &userpb.UserId{OpaqueId: "einstein"},
-					Creator:    &userpb.UserId{OpaqueId: "marie"},
-					Ctime:      &typesv1beta1.Timestamp{Seconds: 1686061921},
-					Mtime:      &typesv1beta1.Timestamp{Seconds: 1686061921},
-					ShareType:  ocm.ShareType_SHARE_TYPE_USER,
-					AccessMethods: []*ocm.AccessMethod{
-						share.NewWebDavAccessMethod(conversions.NewViewerRole().CS3ResourcePermissions()),
-						share.NewWebappAccessMethod(appprovider.ViewMode_VIEW_MODE_READ_ONLY),
-					},
-				},
-			},
-			user:   &userpb.User{Id: &userpb.UserId{OpaqueId: "marie"}},
-			ref:    &ocm.ShareReference{Spec: &ocm.ShareReference_Id{Id: &ocm.ShareId{OpaqueId: "not-existing-id"}}},
-			fields: []*ocm.UpdateOCMShareRequest_UpdateField{{Field: &ocm.UpdateOCMShareRequest_UpdateField_Expiration{Expiration: &typesv1beta1.Timestamp{Seconds: uint64(fixedTime.Unix())}}}},
-			err:    share.ErrShareNotFound,
-		},
-		{
-			description: "update access methods - key not exists",
-			init: []*ocm.Share{
-				{
-					Id:         &ocm.ShareId{OpaqueId: "10"},
-					ResourceId: &providerv1beta1.ResourceId{StorageId: "storage", OpaqueId: "resource-id1"},
-					Name:       "file-name",
-					Token:      "qwerty",
-					Grantee:    &providerv1beta1.Grantee{Type: providerv1beta1.GranteeType_GRANTEE_TYPE_USER, Id: &providerv1beta1.Grantee_UserId{UserId: &userpb.UserId{Idp: "cesnet", OpaqueId: "richard", Type: userpb.UserType_USER_TYPE_FEDERATED}}},
-					Owner:      &userpb.UserId{OpaqueId: "einstein"},
-					Creator:    &userpb.UserId{OpaqueId: "marie"},
-					Ctime:      &typesv1beta1.Timestamp{Seconds: 1686061921},
-					Mtime:      &typesv1beta1.Timestamp{Seconds: 1686061921},
-					ShareType:  ocm.ShareType_SHARE_TYPE_USER,
-					AccessMethods: []*ocm.AccessMethod{
-						share.NewWebDavAccessMethod(conversions.NewViewerRole().CS3ResourcePermissions()),
-						share.NewWebappAccessMethod(appprovider.ViewMode_VIEW_MODE_READ_ONLY),
-					},
-				},
-			},
-			user: &userpb.User{Id: &userpb.UserId{OpaqueId: "marie"}},
-			ref: &ocm.ShareReference{Spec: &ocm.ShareReference_Key{Key: &ocm.ShareKey{
-				Owner:      &userpb.UserId{OpaqueId: "non-existing-user"},
-				ResourceId: &providerv1beta1.ResourceId{StorageId: "storage", OpaqueId: "resource-id1"},
-				Grantee:    &providerv1beta1.Grantee{Type: providerv1beta1.GranteeType_GRANTEE_TYPE_USER, Id: &providerv1beta1.Grantee_UserId{UserId: &userpb.UserId{Idp: "cesnet", OpaqueId: "richard", Type: userpb.UserType_USER_TYPE_FEDERATED}}},
-			}}},
-			fields: []*ocm.UpdateOCMShareRequest_UpdateField{
-				{
-					Field: &ocm.UpdateOCMShareRequest_UpdateField_AccessMethods{
-						AccessMethods: share.NewWebDavAccessMethod(conversions.NewEditorRole().CS3ResourcePermissions()),
-					},
-				},
-				{
-					Field: &ocm.UpdateOCMShareRequest_UpdateField_AccessMethods{
-						AccessMethods: share.NewWebappAccessMethod(appprovider.ViewMode_VIEW_MODE_READ_WRITE),
-					},
-				},
-			},
-			err: share.ErrShareNotFound,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.description, func(t *testing.T) {
-			ctx := sql.NewEmptyContext()
-			tables := createShareTables(ctx, tt.init)
-			engine, port, cleanup := startDatabase(ctx, tables)
-			t.Cleanup(cleanup)
-
-			r, err := NewFromConfig(ctx,
-				&config{
-					DBUsername: "root",
-					DBPassword: "",
-					DBAddress:  fmt.Sprintf("%s:%d", address, port),
-					DBName:     dbName,
-					now:        func() time.Time { return fixedTime },
-				},
-			)
-
-			if err != nil {
-				t.Fatalf("not expected error while creating share repository driver: %+v", err)
-			}
-
-			_, err = r.UpdateShare(context.TODO(), tt.user, tt.ref, tt.fields...)
-			if err != tt.err {
-				t.Fatalf("not expected error updating share. got=%+v expected=%+v", err, tt.err)
 			}
 
 			if tt.err == nil {
@@ -1564,17 +1283,17 @@ func TestGetReceivedShare(t *testing.T) {
 			description: "query by id",
 			shares: []*ocm.ReceivedShare{
 				{
-					Id:            &ocm.ShareId{OpaqueId: "1"},
-					RemoteShareId: "1-remote",
-					Name:          "file-name",
-					Grantee:       &providerv1beta1.Grantee{Type: providerv1beta1.GranteeType_GRANTEE_TYPE_USER, Id: &providerv1beta1.Grantee_UserId{UserId: &userpb.UserId{Idp: "cesnet", OpaqueId: "marie"}}},
-					Owner:         &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein"},
-					Creator:       &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein"},
-					Ctime:         &typesv1beta1.Timestamp{Seconds: 1670859468},
-					Mtime:         &typesv1beta1.Timestamp{Seconds: 1670859468},
-					ShareType:     ocm.ShareType_SHARE_TYPE_USER,
-					State:         ocm.ShareState_SHARE_STATE_ACCEPTED,
-					ResourceType:  providerv1beta1.ResourceType_RESOURCE_TYPE_CONTAINER,
+					Id:           &ocm.ShareId{OpaqueId: "1"},
+					ResourceId:   &providerv1beta1.ResourceId{StorageId: "storage", OpaqueId: "opaque-id"},
+					Name:         "file-name",
+					Grantee:      &providerv1beta1.Grantee{Type: providerv1beta1.GranteeType_GRANTEE_TYPE_USER, Id: &providerv1beta1.Grantee_UserId{UserId: &userpb.UserId{Idp: "cesnet", OpaqueId: "marie"}}},
+					Owner:        &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein"},
+					Creator:      &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein"},
+					Ctime:        &typesv1beta1.Timestamp{Seconds: 1670859468},
+					Mtime:        &typesv1beta1.Timestamp{Seconds: 1670859468},
+					ShareType:    ocm.ShareType_SHARE_TYPE_USER,
+					State:        ocm.ShareState_SHARE_STATE_ACCEPTED,
+					ResourceType: providerv1beta1.ResourceType_RESOURCE_TYPE_CONTAINER,
 					Protocols: []*ocm.Protocol{
 						share.NewWebDAVProtocol("webdav+https//cernbox.cern.ch/dav/ocm/1", "secret", &ocm.SharePermissions{
 							Permissions: conversions.NewEditorRole().CS3ResourcePermissions(),
@@ -1585,18 +1304,18 @@ func TestGetReceivedShare(t *testing.T) {
 			query: &ocm.ShareReference{Spec: &ocm.ShareReference_Id{Id: &ocm.ShareId{OpaqueId: "1"}}},
 			user:  &userpb.User{Id: &userpb.UserId{Idp: "cesnet", OpaqueId: "marie"}},
 			expected: &ocm.ReceivedShare{
-				Id:            &ocm.ShareId{OpaqueId: "1"},
-				RemoteShareId: "1-remote",
-				Name:          "file-name",
-				Grantee:       &providerv1beta1.Grantee{Type: providerv1beta1.GranteeType_GRANTEE_TYPE_USER, Id: &providerv1beta1.Grantee_UserId{UserId: &userpb.UserId{OpaqueId: "marie"}}},
-				Owner:         &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein", Type: userpb.UserType_USER_TYPE_FEDERATED},
-				Creator:       &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein", Type: userpb.UserType_USER_TYPE_FEDERATED},
-				Ctime:         &typesv1beta1.Timestamp{Seconds: 1670859468},
-				Mtime:         &typesv1beta1.Timestamp{Seconds: 1670859468},
-				ShareType:     ocm.ShareType_SHARE_TYPE_USER,
-				State:         ocm.ShareState_SHARE_STATE_ACCEPTED,
-				ResourceType:  providerv1beta1.ResourceType_RESOURCE_TYPE_CONTAINER,
-				Expiration:    &typesv1beta1.Timestamp{},
+				Id:           &ocm.ShareId{OpaqueId: "1"},
+				ResourceId:   &providerv1beta1.ResourceId{StorageId: "storage", OpaqueId: "opaque-id"},
+				Name:         "file-name",
+				Grantee:      &providerv1beta1.Grantee{Type: providerv1beta1.GranteeType_GRANTEE_TYPE_USER, Id: &providerv1beta1.Grantee_UserId{UserId: &userpb.UserId{OpaqueId: "marie"}}},
+				Owner:        &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein", Type: userpb.UserType_USER_TYPE_FEDERATED},
+				Creator:      &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein", Type: userpb.UserType_USER_TYPE_FEDERATED},
+				Ctime:        &typesv1beta1.Timestamp{Seconds: 1670859468},
+				Mtime:        &typesv1beta1.Timestamp{Seconds: 1670859468},
+				ShareType:    ocm.ShareType_SHARE_TYPE_USER,
+				State:        ocm.ShareState_SHARE_STATE_ACCEPTED,
+				ResourceType: providerv1beta1.ResourceType_RESOURCE_TYPE_CONTAINER,
+				Expiration:   &typesv1beta1.Timestamp{},
 				Protocols: []*ocm.Protocol{
 					share.NewWebDAVProtocol("webdav+https//cernbox.cern.ch/dav/ocm/1", "secret", &ocm.SharePermissions{
 						Permissions: conversions.NewEditorRole().CS3ResourcePermissions(),
@@ -1605,20 +1324,106 @@ func TestGetReceivedShare(t *testing.T) {
 			},
 		},
 		{
+			description: "query by key",
+			shares: []*ocm.ReceivedShare{
+				{
+					Id:           &ocm.ShareId{OpaqueId: "1"},
+					ResourceId:   &providerv1beta1.ResourceId{StorageId: "storage", OpaqueId: "opaque-id"},
+					Name:         "file-name",
+					Grantee:      &providerv1beta1.Grantee{Type: providerv1beta1.GranteeType_GRANTEE_TYPE_USER, Id: &providerv1beta1.Grantee_UserId{UserId: &userpb.UserId{Idp: "cesnet", OpaqueId: "marie"}}},
+					Owner:        &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein"},
+					Creator:      &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein"},
+					Ctime:        &typesv1beta1.Timestamp{Seconds: 1670859468},
+					Mtime:        &typesv1beta1.Timestamp{Seconds: 1670859468},
+					ShareType:    ocm.ShareType_SHARE_TYPE_USER,
+					State:        ocm.ShareState_SHARE_STATE_ACCEPTED,
+					ResourceType: providerv1beta1.ResourceType_RESOURCE_TYPE_FILE,
+					Protocols: []*ocm.Protocol{
+						share.NewWebDAVProtocol("webdav+https//cernbox.cern.ch/dav/ocm/1", "secret", &ocm.SharePermissions{
+							Permissions: conversions.NewEditorRole().CS3ResourcePermissions(),
+						}),
+					},
+				},
+			},
+			query: &ocm.ShareReference{
+				Spec: &ocm.ShareReference_Key{
+					Key: &ocm.ShareKey{
+						Owner:      &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein"},
+						ResourceId: &providerv1beta1.ResourceId{StorageId: "storage", OpaqueId: "opaque-id"},
+						Grantee:    &providerv1beta1.Grantee{Type: providerv1beta1.GranteeType_GRANTEE_TYPE_USER, Id: &providerv1beta1.Grantee_UserId{UserId: &userpb.UserId{Idp: "cesnet", OpaqueId: "marie"}}},
+					},
+				},
+			},
+			user: &userpb.User{Id: &userpb.UserId{Idp: "cesnet", OpaqueId: "marie"}},
+			expected: &ocm.ReceivedShare{
+				Id:           &ocm.ShareId{OpaqueId: "1"},
+				ResourceId:   &providerv1beta1.ResourceId{StorageId: "storage", OpaqueId: "opaque-id"},
+				Name:         "file-name",
+				Grantee:      &providerv1beta1.Grantee{Type: providerv1beta1.GranteeType_GRANTEE_TYPE_USER, Id: &providerv1beta1.Grantee_UserId{UserId: &userpb.UserId{OpaqueId: "marie"}}},
+				Owner:        &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein", Type: userpb.UserType_USER_TYPE_FEDERATED},
+				Creator:      &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein", Type: userpb.UserType_USER_TYPE_FEDERATED},
+				Ctime:        &typesv1beta1.Timestamp{Seconds: 1670859468},
+				Mtime:        &typesv1beta1.Timestamp{Seconds: 1670859468},
+				ShareType:    ocm.ShareType_SHARE_TYPE_USER,
+				State:        ocm.ShareState_SHARE_STATE_ACCEPTED,
+				ResourceType: providerv1beta1.ResourceType_RESOURCE_TYPE_FILE,
+				Expiration:   &typesv1beta1.Timestamp{},
+				Protocols: []*ocm.Protocol{
+					share.NewWebDAVProtocol("webdav+https//cernbox.cern.ch/dav/ocm/1", "secret", &ocm.SharePermissions{
+						Permissions: conversions.NewEditorRole().CS3ResourcePermissions(),
+					}),
+				},
+			},
+		},
+		{
+			description: "query by key",
+			shares: []*ocm.ReceivedShare{
+				{
+					Id:           &ocm.ShareId{OpaqueId: "1"},
+					ResourceId:   &providerv1beta1.ResourceId{StorageId: "storage", OpaqueId: "opaque-id"},
+					Name:         "file-name",
+					Grantee:      &providerv1beta1.Grantee{Type: providerv1beta1.GranteeType_GRANTEE_TYPE_USER, Id: &providerv1beta1.Grantee_UserId{UserId: &userpb.UserId{Idp: "cesnet", OpaqueId: "marie"}}},
+					Owner:        &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein"},
+					Creator:      &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein"},
+					Ctime:        &typesv1beta1.Timestamp{Seconds: 1670859468},
+					Mtime:        &typesv1beta1.Timestamp{Seconds: 1670859468},
+					ShareType:    ocm.ShareType_SHARE_TYPE_USER,
+					State:        ocm.ShareState_SHARE_STATE_ACCEPTED,
+					ResourceType: providerv1beta1.ResourceType_RESOURCE_TYPE_CONTAINER,
+					Protocols: []*ocm.Protocol{
+						share.NewWebDAVProtocol("webdav+https//cernbox.cern.ch/dav/ocm/1", "secret", &ocm.SharePermissions{
+							Permissions: conversions.NewEditorRole().CS3ResourcePermissions(),
+						}),
+					},
+				},
+			},
+			query: &ocm.ShareReference{
+				Spec: &ocm.ShareReference_Key{
+					Key: &ocm.ShareKey{
+						Owner:      &userpb.UserId{Idp: "cernbox", OpaqueId: "marie"},
+						ResourceId: &providerv1beta1.ResourceId{StorageId: "storage", OpaqueId: "opaque-id"},
+						Grantee:    &providerv1beta1.Grantee{Type: providerv1beta1.GranteeType_GRANTEE_TYPE_USER, Id: &providerv1beta1.Grantee_UserId{UserId: &userpb.UserId{Idp: "cesnet", OpaqueId: "marie"}}},
+					},
+				},
+			},
+			user: &userpb.User{Id: &userpb.UserId{Idp: "cesnet", OpaqueId: "marie"}},
+			err:  share.ErrShareNotFound,
+		},
+		{
 			description: "query by id - different user",
 			shares: []*ocm.ReceivedShare{
 				{
-					Id:            &ocm.ShareId{OpaqueId: "1"},
-					RemoteShareId: "1-remote",
-					Name:          "file-name",
-					Grantee:       &providerv1beta1.Grantee{Type: providerv1beta1.GranteeType_GRANTEE_TYPE_USER, Id: &providerv1beta1.Grantee_UserId{UserId: &userpb.UserId{Idp: "cesnet", OpaqueId: "marie"}}},
-					Owner:         &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein"},
-					Creator:       &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein"},
-					Ctime:         &typesv1beta1.Timestamp{Seconds: 1670859468},
-					Mtime:         &typesv1beta1.Timestamp{Seconds: 1670859468},
-					ShareType:     ocm.ShareType_SHARE_TYPE_USER,
-					State:         ocm.ShareState_SHARE_STATE_ACCEPTED,
-					ResourceType:  providerv1beta1.ResourceType_RESOURCE_TYPE_FILE,
+					Id:           &ocm.ShareId{OpaqueId: "1"},
+					ResourceId:   &providerv1beta1.ResourceId{StorageId: "storage", OpaqueId: "opaque-id"},
+					Name:         "file-name",
+					Grantee:      &providerv1beta1.Grantee{Type: providerv1beta1.GranteeType_GRANTEE_TYPE_USER, Id: &providerv1beta1.Grantee_UserId{UserId: &userpb.UserId{Idp: "cesnet", OpaqueId: "marie"}}},
+					Owner:        &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein"},
+					Creator:      &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein"},
+					Ctime:        &typesv1beta1.Timestamp{Seconds: 1670859468},
+					Mtime:        &typesv1beta1.Timestamp{Seconds: 1670859468},
+					ShareType:    ocm.ShareType_SHARE_TYPE_USER,
+					State:        ocm.ShareState_SHARE_STATE_ACCEPTED,
+					ResourceType: providerv1beta1.ResourceType_RESOURCE_TYPE_FILE,
 					Protocols: []*ocm.Protocol{
 						share.NewWebDAVProtocol("webdav+https//cernbox.cern.ch/dav/ocm/1", "secret", &ocm.SharePermissions{
 							Permissions: conversions.NewEditorRole().CS3ResourcePermissions(),
@@ -1634,17 +1439,17 @@ func TestGetReceivedShare(t *testing.T) {
 			description: "all protocols",
 			shares: []*ocm.ReceivedShare{
 				{
-					Id:            &ocm.ShareId{OpaqueId: "1"},
-					RemoteShareId: "1-remote",
-					Name:          "file-name",
-					Grantee:       &providerv1beta1.Grantee{Type: providerv1beta1.GranteeType_GRANTEE_TYPE_USER, Id: &providerv1beta1.Grantee_UserId{UserId: &userpb.UserId{Idp: "cesnet", OpaqueId: "marie"}}},
-					Owner:         &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein"},
-					Creator:       &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein"},
-					Ctime:         &typesv1beta1.Timestamp{Seconds: 1670859468},
-					Mtime:         &typesv1beta1.Timestamp{Seconds: 1670859468},
-					ShareType:     ocm.ShareType_SHARE_TYPE_USER,
-					State:         ocm.ShareState_SHARE_STATE_ACCEPTED,
-					ResourceType:  providerv1beta1.ResourceType_RESOURCE_TYPE_FILE,
+					Id:           &ocm.ShareId{OpaqueId: "1"},
+					ResourceId:   &providerv1beta1.ResourceId{StorageId: "storage", OpaqueId: "opaque-id"},
+					Name:         "file-name",
+					Grantee:      &providerv1beta1.Grantee{Type: providerv1beta1.GranteeType_GRANTEE_TYPE_USER, Id: &providerv1beta1.Grantee_UserId{UserId: &userpb.UserId{Idp: "cesnet", OpaqueId: "marie"}}},
+					Owner:        &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein"},
+					Creator:      &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein"},
+					Ctime:        &typesv1beta1.Timestamp{Seconds: 1670859468},
+					Mtime:        &typesv1beta1.Timestamp{Seconds: 1670859468},
+					ShareType:    ocm.ShareType_SHARE_TYPE_USER,
+					State:        ocm.ShareState_SHARE_STATE_ACCEPTED,
+					ResourceType: providerv1beta1.ResourceType_RESOURCE_TYPE_FILE,
 					Protocols: []*ocm.Protocol{
 						share.NewWebDAVProtocol("webdav+https//cernbox.cern.ch/dav/ocm/1", "secret", &ocm.SharePermissions{
 							Permissions: conversions.NewEditorRole().CS3ResourcePermissions(),
@@ -1657,18 +1462,18 @@ func TestGetReceivedShare(t *testing.T) {
 			query: &ocm.ShareReference{Spec: &ocm.ShareReference_Id{Id: &ocm.ShareId{OpaqueId: "1"}}},
 			user:  &userpb.User{Id: &userpb.UserId{Idp: "cesnet", OpaqueId: "marie"}},
 			expected: &ocm.ReceivedShare{
-				Id:            &ocm.ShareId{OpaqueId: "1"},
-				RemoteShareId: "1-remote",
-				Name:          "file-name",
-				Grantee:       &providerv1beta1.Grantee{Type: providerv1beta1.GranteeType_GRANTEE_TYPE_USER, Id: &providerv1beta1.Grantee_UserId{UserId: &userpb.UserId{OpaqueId: "marie"}}},
-				Owner:         &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein", Type: userpb.UserType_USER_TYPE_FEDERATED},
-				Creator:       &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein", Type: userpb.UserType_USER_TYPE_FEDERATED},
-				Ctime:         &typesv1beta1.Timestamp{Seconds: 1670859468},
-				Mtime:         &typesv1beta1.Timestamp{Seconds: 1670859468},
-				ShareType:     ocm.ShareType_SHARE_TYPE_USER,
-				State:         ocm.ShareState_SHARE_STATE_ACCEPTED,
-				ResourceType:  providerv1beta1.ResourceType_RESOURCE_TYPE_FILE,
-				Expiration:    &typesv1beta1.Timestamp{},
+				Id:           &ocm.ShareId{OpaqueId: "1"},
+				ResourceId:   &providerv1beta1.ResourceId{StorageId: "storage", OpaqueId: "opaque-id"},
+				Name:         "file-name",
+				Grantee:      &providerv1beta1.Grantee{Type: providerv1beta1.GranteeType_GRANTEE_TYPE_USER, Id: &providerv1beta1.Grantee_UserId{UserId: &userpb.UserId{OpaqueId: "marie"}}},
+				Owner:        &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein", Type: userpb.UserType_USER_TYPE_FEDERATED},
+				Creator:      &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein", Type: userpb.UserType_USER_TYPE_FEDERATED},
+				Ctime:        &typesv1beta1.Timestamp{Seconds: 1670859468},
+				Mtime:        &typesv1beta1.Timestamp{Seconds: 1670859468},
+				ShareType:    ocm.ShareType_SHARE_TYPE_USER,
+				State:        ocm.ShareState_SHARE_STATE_ACCEPTED,
+				ResourceType: providerv1beta1.ResourceType_RESOURCE_TYPE_FILE,
+				Expiration:   &typesv1beta1.Timestamp{},
 				Protocols: []*ocm.Protocol{
 					share.NewWebDAVProtocol("webdav+https//cernbox.cern.ch/dav/ocm/1", "secret", &ocm.SharePermissions{
 						Permissions: conversions.NewEditorRole().CS3ResourcePermissions(),
@@ -1687,7 +1492,7 @@ func TestGetReceivedShare(t *testing.T) {
 			_, port, cleanup := startDatabase(ctx, tables)
 			t.Cleanup(cleanup)
 
-			r, err := New(context.Background(), map[string]interface{}{
+			r, err := New(map[string]interface{}{
 				"db_username": "root",
 				"db_password": "",
 				"db_address":  fmt.Sprintf("%s:%d", address, port),
@@ -1712,117 +1517,6 @@ func TestGetReceivedShare(t *testing.T) {
 	}
 }
 
-func TestUpdateReceivedShare(t *testing.T) {
-	fixedTime := time.Date(2024, 12, 12, 12, 12, 0, 0, time.UTC)
-
-	tests := []struct {
-		description string
-		shares      []*ocm.ReceivedShare
-		user        *userpb.User
-		newShare    *ocm.ReceivedShare
-		mask        *field_mask.FieldMask
-		err         error
-		expected    storeReceivedShareExpected
-	}{
-		{
-			description: "update existing share",
-			shares: []*ocm.ReceivedShare{
-				{
-					Id:            &ocm.ShareId{OpaqueId: "1"},
-					RemoteShareId: "1-remote",
-					Name:          "file-name",
-					Grantee:       &providerv1beta1.Grantee{Type: providerv1beta1.GranteeType_GRANTEE_TYPE_USER, Id: &providerv1beta1.Grantee_UserId{UserId: &userpb.UserId{Idp: "cesnet", OpaqueId: "marie"}}},
-					Owner:         &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein"},
-					Creator:       &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein"},
-					Ctime:         &typesv1beta1.Timestamp{Seconds: 1670859468},
-					Mtime:         &typesv1beta1.Timestamp{Seconds: 1670859468},
-					ShareType:     ocm.ShareType_SHARE_TYPE_USER,
-					State:         ocm.ShareState_SHARE_STATE_PENDING,
-					ResourceType:  providerv1beta1.ResourceType_RESOURCE_TYPE_FILE,
-					Protocols: []*ocm.Protocol{
-						share.NewWebDAVProtocol("webdav+https//cernbox.cern.ch/dav/ocm/1", "secret", &ocm.SharePermissions{
-							Permissions: conversions.NewEditorRole().CS3ResourcePermissions(),
-						}),
-					},
-				},
-			},
-			user: &userpb.User{Id: &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein"}},
-			newShare: &ocm.ReceivedShare{
-				Id:    &ocm.ShareId{OpaqueId: "1"},
-				State: ocm.ShareState_SHARE_STATE_ACCEPTED,
-			},
-			mask: &fieldmaskpb.FieldMask{Paths: []string{"state"}},
-			expected: storeReceivedShareExpected{
-				shares:    []sql.Row{{int64(1), "file-name", "1-remote", int8(0), "marie", "einstein@cernbox", "einstein@cernbox", uint64(1670859468), uint64(fixedTime.Unix()), uint64(0), int8(ShareTypeUser), int8(ShareStateAccepted)}},
-				protocols: []sql.Row{{int64(1), int64(1), int8(0)}},
-				webdav:    []sql.Row{{int64(1), "webdav+https//cernbox.cern.ch/dav/ocm/1", "secret", int64(15)}},
-				webapp:    []sql.Row{},
-				transfer:  []sql.Row{},
-			},
-		},
-		{
-			description: "update non existing share",
-			shares: []*ocm.ReceivedShare{
-				{
-					Id:            &ocm.ShareId{OpaqueId: "1"},
-					RemoteShareId: "1-remote",
-					Name:          "file-name",
-					Grantee:       &providerv1beta1.Grantee{Type: providerv1beta1.GranteeType_GRANTEE_TYPE_USER, Id: &providerv1beta1.Grantee_UserId{UserId: &userpb.UserId{Idp: "cesnet", OpaqueId: "marie"}}},
-					Owner:         &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein"},
-					Creator:       &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein"},
-					Ctime:         &typesv1beta1.Timestamp{Seconds: 1670859468},
-					Mtime:         &typesv1beta1.Timestamp{Seconds: 1670859468},
-					ShareType:     ocm.ShareType_SHARE_TYPE_USER,
-					State:         ocm.ShareState_SHARE_STATE_PENDING,
-					ResourceType:  providerv1beta1.ResourceType_RESOURCE_TYPE_FILE,
-					Protocols: []*ocm.Protocol{
-						share.NewWebDAVProtocol("webdav+https//cernbox.cern.ch/dav/ocm/1", "secret", &ocm.SharePermissions{
-							Permissions: conversions.NewEditorRole().CS3ResourcePermissions(),
-						}),
-					},
-				},
-			},
-			user: &userpb.User{Id: &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein"}},
-			newShare: &ocm.ReceivedShare{
-				Id:    &ocm.ShareId{OpaqueId: "not-existing-share-id"},
-				State: ocm.ShareState_SHARE_STATE_ACCEPTED,
-			},
-			mask: &fieldmaskpb.FieldMask{Paths: []string{"state"}},
-			err:  share.ErrShareNotFound,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.description, func(t *testing.T) {
-			ctx := sql.NewEmptyContext()
-			tables := createReceivedShareTables(ctx, tt.shares)
-			engine, port, cleanup := startDatabase(ctx, tables)
-			t.Cleanup(cleanup)
-
-			r, err := NewFromConfig(ctx, &config{
-				DBUsername: "root",
-				DBPassword: "",
-				DBAddress:  fmt.Sprintf("%s:%d", address, port),
-				DBName:     dbName,
-				now:        func() time.Time { return fixedTime },
-			})
-
-			if err != nil {
-				t.Fatalf("not expected error while creating share repository driver: %+v", err)
-			}
-
-			_, err = r.UpdateReceivedShare(context.TODO(), tt.user, tt.newShare, tt.mask)
-			if err != tt.err {
-				t.Fatalf("not expected error getting share. got=%+v expected=%+v", err, tt.err)
-			}
-
-			if tt.err == nil {
-				checkReceivedShares(ctx, engine, tt.expected, t)
-			}
-		})
-	}
-}
-
 func TestListReceviedShares(t *testing.T) {
 	tests := []struct {
 		description string
@@ -1840,17 +1534,17 @@ func TestListReceviedShares(t *testing.T) {
 			description: "share belong to user",
 			shares: []*ocm.ReceivedShare{
 				{
-					Id:            &ocm.ShareId{OpaqueId: "1"},
-					RemoteShareId: "1-remote",
-					Name:          "file-name",
-					Grantee:       &providerv1beta1.Grantee{Type: providerv1beta1.GranteeType_GRANTEE_TYPE_USER, Id: &providerv1beta1.Grantee_UserId{UserId: &userpb.UserId{Idp: "cesnet", OpaqueId: "marie"}}},
-					Owner:         &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein"},
-					Creator:       &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein"},
-					Ctime:         &typesv1beta1.Timestamp{Seconds: 1670859468},
-					Mtime:         &typesv1beta1.Timestamp{Seconds: 1670859468},
-					ShareType:     ocm.ShareType_SHARE_TYPE_USER,
-					State:         ocm.ShareState_SHARE_STATE_ACCEPTED,
-					ResourceType:  providerv1beta1.ResourceType_RESOURCE_TYPE_CONTAINER,
+					Id:           &ocm.ShareId{OpaqueId: "1"},
+					ResourceId:   &providerv1beta1.ResourceId{StorageId: "storage", OpaqueId: "opaque-id"},
+					Name:         "file-name",
+					Grantee:      &providerv1beta1.Grantee{Type: providerv1beta1.GranteeType_GRANTEE_TYPE_USER, Id: &providerv1beta1.Grantee_UserId{UserId: &userpb.UserId{Idp: "cesnet", OpaqueId: "marie"}}},
+					Owner:        &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein"},
+					Creator:      &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein"},
+					Ctime:        &typesv1beta1.Timestamp{Seconds: 1670859468},
+					Mtime:        &typesv1beta1.Timestamp{Seconds: 1670859468},
+					ShareType:    ocm.ShareType_SHARE_TYPE_USER,
+					State:        ocm.ShareState_SHARE_STATE_ACCEPTED,
+					ResourceType: providerv1beta1.ResourceType_RESOURCE_TYPE_CONTAINER,
 					Protocols: []*ocm.Protocol{
 						share.NewWebDAVProtocol("webdav+https//cernbox.cern.ch/dav/ocm/1", "secret", &ocm.SharePermissions{
 							Permissions: conversions.NewEditorRole().CS3ResourcePermissions(),
@@ -1863,18 +1557,18 @@ func TestListReceviedShares(t *testing.T) {
 			user: &userpb.User{Id: &userpb.UserId{Idp: "cesnet", OpaqueId: "marie"}},
 			expected: []*ocm.ReceivedShare{
 				{
-					Id:            &ocm.ShareId{OpaqueId: "1"},
-					RemoteShareId: "1-remote",
-					Name:          "file-name",
-					Grantee:       &providerv1beta1.Grantee{Type: providerv1beta1.GranteeType_GRANTEE_TYPE_USER, Id: &providerv1beta1.Grantee_UserId{UserId: &userpb.UserId{OpaqueId: "marie"}}},
-					Owner:         &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein", Type: userpb.UserType_USER_TYPE_FEDERATED},
-					Creator:       &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein", Type: userpb.UserType_USER_TYPE_FEDERATED},
-					Ctime:         &typesv1beta1.Timestamp{Seconds: 1670859468},
-					Mtime:         &typesv1beta1.Timestamp{Seconds: 1670859468},
-					ShareType:     ocm.ShareType_SHARE_TYPE_USER,
-					State:         ocm.ShareState_SHARE_STATE_ACCEPTED,
-					ResourceType:  providerv1beta1.ResourceType_RESOURCE_TYPE_CONTAINER,
-					Expiration:    &typesv1beta1.Timestamp{},
+					Id:           &ocm.ShareId{OpaqueId: "1"},
+					ResourceId:   &providerv1beta1.ResourceId{StorageId: "storage", OpaqueId: "opaque-id"},
+					Name:         "file-name",
+					Grantee:      &providerv1beta1.Grantee{Type: providerv1beta1.GranteeType_GRANTEE_TYPE_USER, Id: &providerv1beta1.Grantee_UserId{UserId: &userpb.UserId{OpaqueId: "marie"}}},
+					Owner:        &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein", Type: userpb.UserType_USER_TYPE_FEDERATED},
+					Creator:      &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein", Type: userpb.UserType_USER_TYPE_FEDERATED},
+					Ctime:        &typesv1beta1.Timestamp{Seconds: 1670859468},
+					Mtime:        &typesv1beta1.Timestamp{Seconds: 1670859468},
+					ShareType:    ocm.ShareType_SHARE_TYPE_USER,
+					State:        ocm.ShareState_SHARE_STATE_ACCEPTED,
+					ResourceType: providerv1beta1.ResourceType_RESOURCE_TYPE_CONTAINER,
+					Expiration:   &typesv1beta1.Timestamp{},
 					Protocols: []*ocm.Protocol{
 						share.NewWebDAVProtocol("webdav+https//cernbox.cern.ch/dav/ocm/1", "secret", &ocm.SharePermissions{
 							Permissions: conversions.NewEditorRole().CS3ResourcePermissions(),
@@ -1889,17 +1583,17 @@ func TestListReceviedShares(t *testing.T) {
 			description: "all shares belong to user",
 			shares: []*ocm.ReceivedShare{
 				{
-					Id:            &ocm.ShareId{OpaqueId: "1"},
-					RemoteShareId: "1-remote",
-					Name:          "file-name",
-					Grantee:       &providerv1beta1.Grantee{Type: providerv1beta1.GranteeType_GRANTEE_TYPE_USER, Id: &providerv1beta1.Grantee_UserId{UserId: &userpb.UserId{Idp: "cesnet", OpaqueId: "marie"}}},
-					Owner:         &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein"},
-					Creator:       &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein"},
-					Ctime:         &typesv1beta1.Timestamp{Seconds: 1670859468},
-					Mtime:         &typesv1beta1.Timestamp{Seconds: 1670859468},
-					ShareType:     ocm.ShareType_SHARE_TYPE_USER,
-					State:         ocm.ShareState_SHARE_STATE_ACCEPTED,
-					ResourceType:  providerv1beta1.ResourceType_RESOURCE_TYPE_FILE,
+					Id:           &ocm.ShareId{OpaqueId: "1"},
+					ResourceId:   &providerv1beta1.ResourceId{StorageId: "storage", OpaqueId: "opaque-id"},
+					Name:         "file-name",
+					Grantee:      &providerv1beta1.Grantee{Type: providerv1beta1.GranteeType_GRANTEE_TYPE_USER, Id: &providerv1beta1.Grantee_UserId{UserId: &userpb.UserId{Idp: "cesnet", OpaqueId: "marie"}}},
+					Owner:        &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein"},
+					Creator:      &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein"},
+					Ctime:        &typesv1beta1.Timestamp{Seconds: 1670859468},
+					Mtime:        &typesv1beta1.Timestamp{Seconds: 1670859468},
+					ShareType:    ocm.ShareType_SHARE_TYPE_USER,
+					State:        ocm.ShareState_SHARE_STATE_ACCEPTED,
+					ResourceType: providerv1beta1.ResourceType_RESOURCE_TYPE_FILE,
 					Protocols: []*ocm.Protocol{
 						share.NewWebDAVProtocol("webdav+https//cernbox.cern.ch/dav/ocm/1", "secret", &ocm.SharePermissions{
 							Permissions: conversions.NewEditorRole().CS3ResourcePermissions(),
@@ -1909,17 +1603,17 @@ func TestListReceviedShares(t *testing.T) {
 					},
 				},
 				{
-					Id:            &ocm.ShareId{OpaqueId: "2"},
-					RemoteShareId: "1-remote",
-					Name:          "file-name",
-					Grantee:       &providerv1beta1.Grantee{Type: providerv1beta1.GranteeType_GRANTEE_TYPE_USER, Id: &providerv1beta1.Grantee_UserId{UserId: &userpb.UserId{Idp: "cesnet", OpaqueId: "marie"}}},
-					Owner:         &userpb.UserId{Idp: "cernbox", OpaqueId: "richard"},
-					Creator:       &userpb.UserId{Idp: "cernbox", OpaqueId: "richard"},
-					Ctime:         &typesv1beta1.Timestamp{Seconds: 1670859468},
-					Mtime:         &typesv1beta1.Timestamp{Seconds: 1670859468},
-					ShareType:     ocm.ShareType_SHARE_TYPE_USER,
-					State:         ocm.ShareState_SHARE_STATE_ACCEPTED,
-					ResourceType:  providerv1beta1.ResourceType_RESOURCE_TYPE_CONTAINER,
+					Id:           &ocm.ShareId{OpaqueId: "2"},
+					ResourceId:   &providerv1beta1.ResourceId{StorageId: "storage", OpaqueId: "opaque-id"},
+					Name:         "file-name",
+					Grantee:      &providerv1beta1.Grantee{Type: providerv1beta1.GranteeType_GRANTEE_TYPE_USER, Id: &providerv1beta1.Grantee_UserId{UserId: &userpb.UserId{Idp: "cesnet", OpaqueId: "marie"}}},
+					Owner:        &userpb.UserId{Idp: "cernbox", OpaqueId: "richard"},
+					Creator:      &userpb.UserId{Idp: "cernbox", OpaqueId: "richard"},
+					Ctime:        &typesv1beta1.Timestamp{Seconds: 1670859468},
+					Mtime:        &typesv1beta1.Timestamp{Seconds: 1670859468},
+					ShareType:    ocm.ShareType_SHARE_TYPE_USER,
+					State:        ocm.ShareState_SHARE_STATE_ACCEPTED,
+					ResourceType: providerv1beta1.ResourceType_RESOURCE_TYPE_CONTAINER,
 					Protocols: []*ocm.Protocol{
 						share.NewWebappProtocol("https://cernbox.cern.ch/ocm/54321", appprovider.ViewMode_VIEW_MODE_READ_ONLY),
 					},
@@ -1928,18 +1622,18 @@ func TestListReceviedShares(t *testing.T) {
 			user: &userpb.User{Id: &userpb.UserId{Idp: "cesnet", OpaqueId: "marie"}},
 			expected: []*ocm.ReceivedShare{
 				{
-					Id:            &ocm.ShareId{OpaqueId: "1"},
-					RemoteShareId: "1-remote",
-					Name:          "file-name",
-					Grantee:       &providerv1beta1.Grantee{Type: providerv1beta1.GranteeType_GRANTEE_TYPE_USER, Id: &providerv1beta1.Grantee_UserId{UserId: &userpb.UserId{OpaqueId: "marie"}}},
-					Owner:         &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein", Type: userpb.UserType_USER_TYPE_FEDERATED},
-					Creator:       &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein", Type: userpb.UserType_USER_TYPE_FEDERATED},
-					Ctime:         &typesv1beta1.Timestamp{Seconds: 1670859468},
-					Mtime:         &typesv1beta1.Timestamp{Seconds: 1670859468},
-					ShareType:     ocm.ShareType_SHARE_TYPE_USER,
-					State:         ocm.ShareState_SHARE_STATE_ACCEPTED,
-					ResourceType:  providerv1beta1.ResourceType_RESOURCE_TYPE_FILE,
-					Expiration:    &typesv1beta1.Timestamp{},
+					Id:           &ocm.ShareId{OpaqueId: "1"},
+					ResourceId:   &providerv1beta1.ResourceId{StorageId: "storage", OpaqueId: "opaque-id"},
+					Name:         "file-name",
+					Grantee:      &providerv1beta1.Grantee{Type: providerv1beta1.GranteeType_GRANTEE_TYPE_USER, Id: &providerv1beta1.Grantee_UserId{UserId: &userpb.UserId{OpaqueId: "marie"}}},
+					Owner:        &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein", Type: userpb.UserType_USER_TYPE_FEDERATED},
+					Creator:      &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein", Type: userpb.UserType_USER_TYPE_FEDERATED},
+					Ctime:        &typesv1beta1.Timestamp{Seconds: 1670859468},
+					Mtime:        &typesv1beta1.Timestamp{Seconds: 1670859468},
+					ShareType:    ocm.ShareType_SHARE_TYPE_USER,
+					State:        ocm.ShareState_SHARE_STATE_ACCEPTED,
+					ResourceType: providerv1beta1.ResourceType_RESOURCE_TYPE_FILE,
+					Expiration:   &typesv1beta1.Timestamp{},
 					Protocols: []*ocm.Protocol{
 						share.NewWebDAVProtocol("webdav+https//cernbox.cern.ch/dav/ocm/1", "secret", &ocm.SharePermissions{
 							Permissions: conversions.NewEditorRole().CS3ResourcePermissions(),
@@ -1949,18 +1643,18 @@ func TestListReceviedShares(t *testing.T) {
 					},
 				},
 				{
-					Id:            &ocm.ShareId{OpaqueId: "2"},
-					RemoteShareId: "1-remote",
-					Name:          "file-name",
-					Grantee:       &providerv1beta1.Grantee{Type: providerv1beta1.GranteeType_GRANTEE_TYPE_USER, Id: &providerv1beta1.Grantee_UserId{UserId: &userpb.UserId{OpaqueId: "marie"}}},
-					Owner:         &userpb.UserId{Idp: "cernbox", OpaqueId: "richard", Type: userpb.UserType_USER_TYPE_FEDERATED},
-					Creator:       &userpb.UserId{Idp: "cernbox", OpaqueId: "richard", Type: userpb.UserType_USER_TYPE_FEDERATED},
-					Ctime:         &typesv1beta1.Timestamp{Seconds: 1670859468},
-					Mtime:         &typesv1beta1.Timestamp{Seconds: 1670859468},
-					ShareType:     ocm.ShareType_SHARE_TYPE_USER,
-					State:         ocm.ShareState_SHARE_STATE_ACCEPTED,
-					ResourceType:  providerv1beta1.ResourceType_RESOURCE_TYPE_CONTAINER,
-					Expiration:    &typesv1beta1.Timestamp{},
+					Id:           &ocm.ShareId{OpaqueId: "2"},
+					ResourceId:   &providerv1beta1.ResourceId{StorageId: "storage", OpaqueId: "opaque-id"},
+					Name:         "file-name",
+					Grantee:      &providerv1beta1.Grantee{Type: providerv1beta1.GranteeType_GRANTEE_TYPE_USER, Id: &providerv1beta1.Grantee_UserId{UserId: &userpb.UserId{OpaqueId: "marie"}}},
+					Owner:        &userpb.UserId{Idp: "cernbox", OpaqueId: "richard", Type: userpb.UserType_USER_TYPE_FEDERATED},
+					Creator:      &userpb.UserId{Idp: "cernbox", OpaqueId: "richard", Type: userpb.UserType_USER_TYPE_FEDERATED},
+					Ctime:        &typesv1beta1.Timestamp{Seconds: 1670859468},
+					Mtime:        &typesv1beta1.Timestamp{Seconds: 1670859468},
+					ShareType:    ocm.ShareType_SHARE_TYPE_USER,
+					State:        ocm.ShareState_SHARE_STATE_ACCEPTED,
+					ResourceType: providerv1beta1.ResourceType_RESOURCE_TYPE_CONTAINER,
+					Expiration:   &typesv1beta1.Timestamp{},
 					Protocols: []*ocm.Protocol{
 						share.NewWebappProtocol("https://cernbox.cern.ch/ocm/54321", appprovider.ViewMode_VIEW_MODE_READ_ONLY),
 					},
@@ -1971,17 +1665,17 @@ func TestListReceviedShares(t *testing.T) {
 			description: "select share by user",
 			shares: []*ocm.ReceivedShare{
 				{
-					Id:            &ocm.ShareId{OpaqueId: "1"},
-					RemoteShareId: "1-remote",
-					Name:          "file-name",
-					Grantee:       &providerv1beta1.Grantee{Type: providerv1beta1.GranteeType_GRANTEE_TYPE_USER, Id: &providerv1beta1.Grantee_UserId{UserId: &userpb.UserId{Idp: "cesnet", OpaqueId: "marie"}}},
-					Owner:         &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein"},
-					Creator:       &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein"},
-					Ctime:         &typesv1beta1.Timestamp{Seconds: 1670859468},
-					Mtime:         &typesv1beta1.Timestamp{Seconds: 1670859468},
-					ShareType:     ocm.ShareType_SHARE_TYPE_USER,
-					State:         ocm.ShareState_SHARE_STATE_ACCEPTED,
-					ResourceType:  providerv1beta1.ResourceType_RESOURCE_TYPE_CONTAINER,
+					Id:           &ocm.ShareId{OpaqueId: "1"},
+					ResourceId:   &providerv1beta1.ResourceId{StorageId: "storage", OpaqueId: "opaque-id"},
+					Name:         "file-name",
+					Grantee:      &providerv1beta1.Grantee{Type: providerv1beta1.GranteeType_GRANTEE_TYPE_USER, Id: &providerv1beta1.Grantee_UserId{UserId: &userpb.UserId{Idp: "cesnet", OpaqueId: "marie"}}},
+					Owner:        &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein"},
+					Creator:      &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein"},
+					Ctime:        &typesv1beta1.Timestamp{Seconds: 1670859468},
+					Mtime:        &typesv1beta1.Timestamp{Seconds: 1670859468},
+					ShareType:    ocm.ShareType_SHARE_TYPE_USER,
+					State:        ocm.ShareState_SHARE_STATE_ACCEPTED,
+					ResourceType: providerv1beta1.ResourceType_RESOURCE_TYPE_CONTAINER,
 					Protocols: []*ocm.Protocol{
 						share.NewWebDAVProtocol("webdav+https//cernbox.cern.ch/dav/ocm/1", "secret", &ocm.SharePermissions{
 							Permissions: conversions.NewEditorRole().CS3ResourcePermissions(),
@@ -1991,17 +1685,17 @@ func TestListReceviedShares(t *testing.T) {
 					},
 				},
 				{
-					Id:            &ocm.ShareId{OpaqueId: "2"},
-					RemoteShareId: "1-remote",
-					Name:          "file-name",
-					Grantee:       &providerv1beta1.Grantee{Type: providerv1beta1.GranteeType_GRANTEE_TYPE_USER, Id: &providerv1beta1.Grantee_UserId{UserId: &userpb.UserId{Idp: "cesnet", OpaqueId: "einstein"}}},
-					Owner:         &userpb.UserId{Idp: "cernbox", OpaqueId: "richard"},
-					Creator:       &userpb.UserId{Idp: "cernbox", OpaqueId: "richard"},
-					Ctime:         &typesv1beta1.Timestamp{Seconds: 1670859468},
-					Mtime:         &typesv1beta1.Timestamp{Seconds: 1670859468},
-					ShareType:     ocm.ShareType_SHARE_TYPE_USER,
-					State:         ocm.ShareState_SHARE_STATE_ACCEPTED,
-					ResourceType:  providerv1beta1.ResourceType_RESOURCE_TYPE_CONTAINER,
+					Id:           &ocm.ShareId{OpaqueId: "2"},
+					ResourceId:   &providerv1beta1.ResourceId{StorageId: "storage", OpaqueId: "opaque-id"},
+					Name:         "file-name",
+					Grantee:      &providerv1beta1.Grantee{Type: providerv1beta1.GranteeType_GRANTEE_TYPE_USER, Id: &providerv1beta1.Grantee_UserId{UserId: &userpb.UserId{Idp: "cesnet", OpaqueId: "einstein"}}},
+					Owner:        &userpb.UserId{Idp: "cernbox", OpaqueId: "richard"},
+					Creator:      &userpb.UserId{Idp: "cernbox", OpaqueId: "richard"},
+					Ctime:        &typesv1beta1.Timestamp{Seconds: 1670859468},
+					Mtime:        &typesv1beta1.Timestamp{Seconds: 1670859468},
+					ShareType:    ocm.ShareType_SHARE_TYPE_USER,
+					State:        ocm.ShareState_SHARE_STATE_ACCEPTED,
+					ResourceType: providerv1beta1.ResourceType_RESOURCE_TYPE_CONTAINER,
 					Protocols: []*ocm.Protocol{
 						share.NewWebappProtocol("https://cernbox.cern.ch/ocm/54321", appprovider.ViewMode_VIEW_MODE_READ_WRITE),
 					},
@@ -2010,18 +1704,18 @@ func TestListReceviedShares(t *testing.T) {
 			user: &userpb.User{Id: &userpb.UserId{Idp: "cesnet", OpaqueId: "marie"}},
 			expected: []*ocm.ReceivedShare{
 				{
-					Id:            &ocm.ShareId{OpaqueId: "1"},
-					RemoteShareId: "1-remote",
-					Name:          "file-name",
-					Grantee:       &providerv1beta1.Grantee{Type: providerv1beta1.GranteeType_GRANTEE_TYPE_USER, Id: &providerv1beta1.Grantee_UserId{UserId: &userpb.UserId{OpaqueId: "marie"}}},
-					Owner:         &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein", Type: userpb.UserType_USER_TYPE_FEDERATED},
-					Creator:       &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein", Type: userpb.UserType_USER_TYPE_FEDERATED},
-					Ctime:         &typesv1beta1.Timestamp{Seconds: 1670859468},
-					Mtime:         &typesv1beta1.Timestamp{Seconds: 1670859468},
-					ShareType:     ocm.ShareType_SHARE_TYPE_USER,
-					State:         ocm.ShareState_SHARE_STATE_ACCEPTED,
-					ResourceType:  providerv1beta1.ResourceType_RESOURCE_TYPE_CONTAINER,
-					Expiration:    &typesv1beta1.Timestamp{},
+					Id:           &ocm.ShareId{OpaqueId: "1"},
+					ResourceId:   &providerv1beta1.ResourceId{StorageId: "storage", OpaqueId: "opaque-id"},
+					Name:         "file-name",
+					Grantee:      &providerv1beta1.Grantee{Type: providerv1beta1.GranteeType_GRANTEE_TYPE_USER, Id: &providerv1beta1.Grantee_UserId{UserId: &userpb.UserId{OpaqueId: "marie"}}},
+					Owner:        &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein", Type: userpb.UserType_USER_TYPE_FEDERATED},
+					Creator:      &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein", Type: userpb.UserType_USER_TYPE_FEDERATED},
+					Ctime:        &typesv1beta1.Timestamp{Seconds: 1670859468},
+					Mtime:        &typesv1beta1.Timestamp{Seconds: 1670859468},
+					ShareType:    ocm.ShareType_SHARE_TYPE_USER,
+					State:        ocm.ShareState_SHARE_STATE_ACCEPTED,
+					ResourceType: providerv1beta1.ResourceType_RESOURCE_TYPE_CONTAINER,
+					Expiration:   &typesv1beta1.Timestamp{},
 					Protocols: []*ocm.Protocol{
 						share.NewWebDAVProtocol("webdav+https//cernbox.cern.ch/dav/ocm/1", "secret", &ocm.SharePermissions{
 							Permissions: conversions.NewEditorRole().CS3ResourcePermissions(),
@@ -2041,7 +1735,7 @@ func TestListReceviedShares(t *testing.T) {
 			_, port, cleanup := startDatabase(ctx, tables)
 			t.Cleanup(cleanup)
 
-			r, err := New(context.Background(), map[string]interface{}{
+			r, err := New(map[string]interface{}{
 				"db_username": "root",
 				"db_password": "",
 				"db_address":  fmt.Sprintf("%s:%d", address, port),
@@ -2092,16 +1786,16 @@ func TestStoreReceivedShare(t *testing.T) {
 			description: "empty table",
 			shares:      []*ocm.ReceivedShare{},
 			toStore: &ocm.ReceivedShare{
-				RemoteShareId: "1-remote",
-				Name:          "file-name",
-				Grantee:       &providerv1beta1.Grantee{Type: providerv1beta1.GranteeType_GRANTEE_TYPE_USER, Id: &providerv1beta1.Grantee_UserId{UserId: &userpb.UserId{Idp: "cesnet", OpaqueId: "marie"}}},
-				Owner:         &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein"},
-				Creator:       &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein"},
-				Ctime:         &typesv1beta1.Timestamp{Seconds: 1670859468},
-				Mtime:         &typesv1beta1.Timestamp{Seconds: 1670859468},
-				ShareType:     ocm.ShareType_SHARE_TYPE_USER,
-				State:         ocm.ShareState_SHARE_STATE_ACCEPTED,
-				ResourceType:  providerv1beta1.ResourceType_RESOURCE_TYPE_CONTAINER,
+				ResourceId:   &providerv1beta1.ResourceId{StorageId: "storage", OpaqueId: "opaque-id"},
+				Name:         "file-name",
+				Grantee:      &providerv1beta1.Grantee{Type: providerv1beta1.GranteeType_GRANTEE_TYPE_USER, Id: &providerv1beta1.Grantee_UserId{UserId: &userpb.UserId{Idp: "cesnet", OpaqueId: "marie"}}},
+				Owner:        &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein"},
+				Creator:      &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein"},
+				Ctime:        &typesv1beta1.Timestamp{Seconds: 1670859468},
+				Mtime:        &typesv1beta1.Timestamp{Seconds: 1670859468},
+				ShareType:    ocm.ShareType_SHARE_TYPE_USER,
+				State:        ocm.ShareState_SHARE_STATE_ACCEPTED,
+				ResourceType: providerv1beta1.ResourceType_RESOURCE_TYPE_CONTAINER,
 				Protocols: []*ocm.Protocol{
 					share.NewWebDAVProtocol("webdav+https//cernbox.cern.ch/dav/ocm/1", "secret", &ocm.SharePermissions{
 						Permissions: conversions.NewEditorRole().CS3ResourcePermissions(),
@@ -2109,7 +1803,7 @@ func TestStoreReceivedShare(t *testing.T) {
 				},
 			},
 			expected: storeReceivedShareExpected{
-				shares:    []sql.Row{{int64(1), "file-name", "1-remote", int8(1), "marie", "einstein@cernbox", "einstein@cernbox", uint64(1670859468), uint64(1670859468), nil, int8(ShareTypeUser), int8(ShareStateAccepted)}},
+				shares:    []sql.Row{{int64(1), "file-name", "storage", "opaque-id", int8(1), "marie", "einstein@cernbox", "einstein@cernbox", uint64(1670859468), uint64(1670859468), nil, int8(ShareTypeUser), int8(ShareStateAccepted)}},
 				protocols: []sql.Row{{int64(1), int64(1), int8(0)}},
 				webdav:    []sql.Row{{int64(1), "webdav+https//cernbox.cern.ch/dav/ocm/1", "secret", int64(15)}},
 				webapp:    []sql.Row{},
@@ -2120,17 +1814,17 @@ func TestStoreReceivedShare(t *testing.T) {
 			description: "non empty table",
 			shares: []*ocm.ReceivedShare{
 				{
-					Id:            &ocm.ShareId{OpaqueId: "1"},
-					RemoteShareId: "1-remote",
-					Name:          "file-name",
-					Grantee:       &providerv1beta1.Grantee{Type: providerv1beta1.GranteeType_GRANTEE_TYPE_USER, Id: &providerv1beta1.Grantee_UserId{UserId: &userpb.UserId{Idp: "cesnet", OpaqueId: "marie"}}},
-					Owner:         &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein"},
-					Creator:       &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein"},
-					Ctime:         &typesv1beta1.Timestamp{Seconds: 1670859468},
-					Mtime:         &typesv1beta1.Timestamp{Seconds: 1670859468},
-					ShareType:     ocm.ShareType_SHARE_TYPE_USER,
-					State:         ocm.ShareState_SHARE_STATE_ACCEPTED,
-					ResourceType:  providerv1beta1.ResourceType_RESOURCE_TYPE_FILE,
+					Id:           &ocm.ShareId{OpaqueId: "1"},
+					ResourceId:   &providerv1beta1.ResourceId{StorageId: "storage", OpaqueId: "opaque-id"},
+					Name:         "file-name",
+					Grantee:      &providerv1beta1.Grantee{Type: providerv1beta1.GranteeType_GRANTEE_TYPE_USER, Id: &providerv1beta1.Grantee_UserId{UserId: &userpb.UserId{Idp: "cesnet", OpaqueId: "marie"}}},
+					Owner:        &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein"},
+					Creator:      &userpb.UserId{Idp: "cernbox", OpaqueId: "einstein"},
+					Ctime:        &typesv1beta1.Timestamp{Seconds: 1670859468},
+					Mtime:        &typesv1beta1.Timestamp{Seconds: 1670859468},
+					ShareType:    ocm.ShareType_SHARE_TYPE_USER,
+					State:        ocm.ShareState_SHARE_STATE_ACCEPTED,
+					ResourceType: providerv1beta1.ResourceType_RESOURCE_TYPE_FILE,
 					Protocols: []*ocm.Protocol{
 						share.NewWebDAVProtocol("webdav+https//cernbox.cern.ch/dav/ocm/1", "secret", &ocm.SharePermissions{
 							Permissions: conversions.NewEditorRole().CS3ResourcePermissions(),
@@ -2139,16 +1833,16 @@ func TestStoreReceivedShare(t *testing.T) {
 				},
 			},
 			toStore: &ocm.ReceivedShare{
-				RemoteShareId: "2-remote",
-				Name:          "file-name",
-				Grantee:       &providerv1beta1.Grantee{Type: providerv1beta1.GranteeType_GRANTEE_TYPE_USER, Id: &providerv1beta1.Grantee_UserId{UserId: &userpb.UserId{Idp: "cesnet", OpaqueId: "richard"}}},
-				Owner:         &userpb.UserId{Idp: "cernbox", OpaqueId: "marie"},
-				Creator:       &userpb.UserId{Idp: "cernbox", OpaqueId: "marie"},
-				Ctime:         &typesv1beta1.Timestamp{Seconds: 1670859468},
-				Mtime:         &typesv1beta1.Timestamp{Seconds: 1670859468},
-				ShareType:     ocm.ShareType_SHARE_TYPE_USER,
-				State:         ocm.ShareState_SHARE_STATE_PENDING,
-				ResourceType:  providerv1beta1.ResourceType_RESOURCE_TYPE_CONTAINER,
+				ResourceId:   &providerv1beta1.ResourceId{StorageId: "storage", OpaqueId: "new-resource"},
+				Name:         "file-name",
+				Grantee:      &providerv1beta1.Grantee{Type: providerv1beta1.GranteeType_GRANTEE_TYPE_USER, Id: &providerv1beta1.Grantee_UserId{UserId: &userpb.UserId{Idp: "cesnet", OpaqueId: "richard"}}},
+				Owner:        &userpb.UserId{Idp: "cernbox", OpaqueId: "marie"},
+				Creator:      &userpb.UserId{Idp: "cernbox", OpaqueId: "marie"},
+				Ctime:        &typesv1beta1.Timestamp{Seconds: 1670859468},
+				Mtime:        &typesv1beta1.Timestamp{Seconds: 1670859468},
+				ShareType:    ocm.ShareType_SHARE_TYPE_USER,
+				State:        ocm.ShareState_SHARE_STATE_PENDING,
+				ResourceType: providerv1beta1.ResourceType_RESOURCE_TYPE_CONTAINER,
 				Protocols: []*ocm.Protocol{
 					share.NewWebDAVProtocol("webdav+https//cernbox.cern.ch/dav/ocm/1", "secret", &ocm.SharePermissions{
 						Permissions: conversions.NewEditorRole().CS3ResourcePermissions(),
@@ -2159,8 +1853,8 @@ func TestStoreReceivedShare(t *testing.T) {
 			},
 			expected: storeReceivedShareExpected{
 				shares: []sql.Row{
-					{int64(1), "file-name", "1-remote", int8(0), "marie", "einstein@cernbox", "einstein@cernbox", uint64(1670859468), uint64(1670859468), uint64(0), int8(ShareTypeUser), int8(ShareStateAccepted)},
-					{int64(2), "file-name", "2-remote", int8(1), "richard", "marie@cernbox", "marie@cernbox", uint64(1670859468), uint64(1670859468), nil, int8(ShareTypeUser), int8(ShareStatePending)},
+					{int64(1), "file-name", "storage", "opaque-id", int8(0), "marie", "einstein@cernbox", "einstein@cernbox", uint64(1670859468), uint64(1670859468), uint64(0), int8(ShareTypeUser), int8(ShareStateAccepted)},
+					{int64(2), "file-name", "storage", "new-resource", int8(1), "richard", "marie@cernbox", "marie@cernbox", uint64(1670859468), uint64(1670859468), nil, int8(ShareTypeUser), int8(ShareStatePending)},
 				},
 				protocols: []sql.Row{
 					{int64(1), int64(1), int8(WebDAVProtocol)},
@@ -2189,7 +1883,7 @@ func TestStoreReceivedShare(t *testing.T) {
 			engine, port, cleanup := startDatabase(ctx, tables)
 			t.Cleanup(cleanup)
 
-			r, err := New(context.Background(), map[string]interface{}{
+			r, err := New(map[string]interface{}{
 				"db_username": "root",
 				"db_password": "",
 				"db_address":  fmt.Sprintf("%s:%d", address, port),

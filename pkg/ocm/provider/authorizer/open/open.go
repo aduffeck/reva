@@ -25,10 +25,11 @@ import (
 	"strings"
 
 	ocmprovider "github.com/cs3org/go-cs3apis/cs3/ocm/provider/v1beta1"
-	"github.com/cs3org/reva/pkg/errtypes"
-	"github.com/cs3org/reva/pkg/ocm/provider"
-	"github.com/cs3org/reva/pkg/ocm/provider/authorizer/registry"
-	"github.com/cs3org/reva/pkg/utils/cfg"
+	"github.com/cs3org/reva/v2/pkg/errtypes"
+	"github.com/cs3org/reva/v2/pkg/ocm/provider"
+	"github.com/cs3org/reva/v2/pkg/ocm/provider/authorizer/registry"
+	"github.com/mitchellh/mapstructure"
+	"github.com/pkg/errors"
 )
 
 func init() {
@@ -36,11 +37,13 @@ func init() {
 }
 
 // New returns a new authorizer object.
-func New(ctx context.Context, m map[string]interface{}) (provider.Authorizer, error) {
-	var c config
-	if err := cfg.Decode(m, &c); err != nil {
+func New(m map[string]interface{}) (provider.Authorizer, error) {
+	c := &config{}
+	if err := mapstructure.Decode(m, c); err != nil {
+		err = errors.Wrap(err, "error decoding conf")
 		return nil, err
 	}
+	c.init()
 
 	f, err := os.ReadFile(c.Providers)
 	if err != nil {
@@ -63,7 +66,7 @@ type config struct {
 	Providers string `mapstructure:"providers"`
 }
 
-func (c *config) ApplyDefaults() {
+func (c *config) init() {
 	if c.Providers == "" {
 		c.Providers = "/etc/revad/ocm-providers.json"
 	}

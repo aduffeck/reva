@@ -24,19 +24,17 @@ import (
 	"fmt"
 	"time"
 
-	gatewayv1beta1 "github.com/cs3org/go-cs3apis/cs3/gateway/v1beta1"
 	userpb "github.com/cs3org/go-cs3apis/cs3/identity/user/v1beta1"
 	invitepb "github.com/cs3org/go-cs3apis/cs3/ocm/invite/v1beta1"
 	types "github.com/cs3org/go-cs3apis/cs3/types/v1beta1"
-	conversions "github.com/cs3org/reva/pkg/cbox/utils"
-	"github.com/cs3org/reva/pkg/errtypes"
-	"github.com/cs3org/reva/pkg/ocm/invite"
-	"github.com/cs3org/reva/pkg/rgrpc/todo/pool"
-	"github.com/cs3org/reva/pkg/utils/cfg"
+	conversions "github.com/cs3org/reva/v2/pkg/cbox/utils"
+	"github.com/cs3org/reva/v2/pkg/errtypes"
+	"github.com/cs3org/reva/v2/pkg/ocm/invite"
 	"github.com/go-sql-driver/mysql"
 
-	"github.com/cs3org/reva/pkg/ocm/invite/repository/registry"
-	"github.com/cs3org/reva/pkg/sharedconf"
+	"github.com/cs3org/reva/v2/pkg/ocm/invite/repository/registry"
+	"github.com/cs3org/reva/v2/pkg/sharedconf"
+	"github.com/mitchellh/mapstructure"
 	"github.com/pkg/errors"
 )
 
@@ -53,9 +51,8 @@ func init() {
 }
 
 type mgr struct {
-	c      *config
-	db     *sql.DB
-	client gatewayv1beta1.GatewayAPIClient
+	c  *config
+	db *sql.DB
 }
 
 type config struct {
@@ -66,31 +63,34 @@ type config struct {
 	GatewaySvc string `mapstructure:"gatewaysvc"`
 }
 
-func (c *config) ApplyDefaults() {
+func (c *config) init() {
 	c.GatewaySvc = sharedconf.GetGatewaySVC(c.GatewaySvc)
 }
 
-// New creates a sql repository for ocm tokens and users.
-func New(ctx context.Context, m map[string]interface{}) (invite.Repository, error) {
-	var c config
-	if err := cfg.Decode(m, &c); err != nil {
+func parseConfig(c map[string]interface{}) (*config, error) {
+	var conf config
+	if err := mapstructure.Decode(c, &conf); err != nil {
 		return nil, err
 	}
+	return &conf, nil
+}
 
-	db, err := sql.Open("mysql", fmt.Sprintf("%s:%s@tcp(%s)/%s?parseTime=true", c.DBUsername, c.DBPassword, c.DBAddress, c.DBName))
+// New creates a sql repository for ocm tokens and users.
+func New(c map[string]interface{}) (invite.Repository, error) {
+	conf, err := parseConfig(c)
+	if err != nil {
+		return nil, errors.Wrap(err, "sql: error parsing config")
+	}
+	conf.init()
+
+	db, err := sql.Open("mysql", fmt.Sprintf("%s:%s@tcp(%s)/%s?parseTime=true", conf.DBUsername, conf.DBPassword, conf.DBAddress, conf.DBName))
 	if err != nil {
 		return nil, errors.Wrap(err, "sql: error opening connection to mysql database")
 	}
 
-	gw, err := pool.GetGatewayServiceClient(pool.Endpoint(c.GatewaySvc))
-	if err != nil {
-		return nil, err
-	}
-
 	mgr := mgr{
-		c:      &c,
-		db:     db,
-		client: gw,
+		c:  conf,
+		db: db,
 	}
 	return &mgr, nil
 }
@@ -124,22 +124,18 @@ func (m *mgr) GetToken(ctx context.Context, token string) (*invitepb.InviteToken
 		}
 		return nil, err
 	}
-	return m.convertToInviteToken(ctx, tkn)
+	return convertToInviteToken(tkn), nil
 }
 
-func (m *mgr) convertToInviteToken(ctx context.Context, tkn dbToken) (*invitepb.InviteToken, error) {
-	user, err := conversions.ExtractUserID(ctx, m.client, tkn.Initiator)
-	if err != nil {
-		return nil, err
-	}
+func convertToInviteToken(tkn dbToken) *invitepb.InviteToken {
 	return &invitepb.InviteToken{
 		Token:  tkn.Token,
-		UserId: user,
+		UserId: conversions.ExtractUserID(tkn.Initiator),
 		Expiration: &types.Timestamp{
 			Seconds: uint64(tkn.Expiration.Unix()),
 		},
 		Description: tkn.Description,
-	}, nil
+	}
 }
 
 func (m *mgr) ListTokens(ctx context.Context, initiator *userpb.UserId) ([]*invitepb.InviteToken, error) {
@@ -156,11 +152,7 @@ func (m *mgr) ListTokens(ctx context.Context, initiator *userpb.UserId) ([]*invi
 		if err := rows.Scan(&tkn.Token, &tkn.Initiator, &tkn.Expiration, &tkn.Description); err != nil {
 			continue
 		}
-		token, err := m.convertToInviteToken(ctx, tkn)
-		if err != nil {
-			return nil, err
-		}
-		tokens = append(tokens, token)
+		tokens = append(tokens, convertToInviteToken(tkn))
 	}
 
 	return tokens, nil
@@ -242,10 +234,4 @@ func (m *mgr) FindRemoteUsers(ctx context.Context, initiator *userpb.UserId, att
 	}
 
 	return users, nil
-}
-
-func (m *mgr) DeleteRemoteUser(ctx context.Context, initiator *userpb.UserId, remoteUser *userpb.UserId) error {
-	query := "DELETE FROM ocm_remote_users WHERE initiator=? AND opaque_user_id=? AND idp=?"
-	_, err := m.db.ExecContext(ctx, query, conversions.FormatUserID(initiator), conversions.FormatUserID(remoteUser), remoteUser.Idp)
-	return err
 }
