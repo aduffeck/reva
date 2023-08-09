@@ -1,4 +1,4 @@
-// Copyright 2018-2021 CERN
+// Copyright 2018-2023 CERN
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,16 +22,16 @@ import (
 	"context"
 
 	ocmcore "github.com/cs3org/go-cs3apis/cs3/ocm/core/v1beta1"
-	"github.com/cs3org/reva/v2/pkg/rgrpc/status"
-	"github.com/cs3org/reva/v2/pkg/rgrpc/todo/pool"
+	"github.com/cs3org/reva/pkg/rgrpc/status"
+	"github.com/cs3org/reva/pkg/rgrpc/todo/pool"
 	"github.com/pkg/errors"
 )
 
 func (s *svc) CreateOCMCoreShare(ctx context.Context, req *ocmcore.CreateOCMCoreShareRequest) (*ocmcore.CreateOCMCoreShareResponse, error) {
-	c, err := pool.GetOCMCoreClient(s.c.OCMCoreEndpoint)
+	c, err := pool.GetOCMCoreClient(pool.Endpoint(s.c.OCMCoreEndpoint))
 	if err != nil {
 		return &ocmcore.CreateOCMCoreShareResponse{
-			Status: status.NewInternal(ctx, "error getting ocm core client"),
+			Status: status.NewInternal(ctx, err, "error getting ocm core client"),
 		}, nil
 	}
 
