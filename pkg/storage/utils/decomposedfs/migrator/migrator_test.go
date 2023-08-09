@@ -73,7 +73,7 @@ var _ = Describe("Migrator", func() {
 			)
 
 			JustBeforeEach(func() {
-				backend = metadata.NewMessagePackBackend(env.Root, env.Options.FileMetadataCache)
+				backend = metadata.NewMessagePackBackend(env.Root, env.Options.GroupCacheName)
 
 				var err error
 				env, err = helpers.NewTestEnv(map[string]interface{}{

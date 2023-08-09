@@ -23,7 +23,6 @@ import (
 	"os"
 	"path"
 
-	"github.com/cs3org/reva/v2/pkg/storage/cache"
 	"github.com/cs3org/reva/v2/pkg/storage/utils/decomposedfs/metadata"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -55,9 +54,7 @@ var _ = Describe("Backend", func() {
 
 	Describe("MessagePackBackend", func() {
 		BeforeEach(func() {
-			backend = metadata.NewMessagePackBackend(tmpdir, cache.Config{
-				Database: tmpdir,
-			})
+			backend = metadata.NewMessagePackBackend(tmpdir, "")
 		})
 
 		Describe("Set", func() {

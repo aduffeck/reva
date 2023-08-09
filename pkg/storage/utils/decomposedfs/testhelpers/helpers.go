@@ -151,7 +151,7 @@ func NewTestEnv(config map[string]interface{}) (*TestEnv, error) {
 	case "xattrs":
 		lu = lookup.New(metadata.XattrsBackend{}, o)
 	case "messagepack":
-		lu = lookup.New(metadata.NewMessagePackBackend(o.Root, o.FileMetadataCache), o)
+		lu = lookup.New(metadata.NewMessagePackBackend(o.Root, o.GroupCacheName), o)
 	default:
 		return nil, fmt.Errorf("unknown metadata backend %s", o.MetadataBackend)
 	}

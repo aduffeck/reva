@@ -50,6 +50,8 @@ const (
 	TypeOCMem = "ocmem"
 	// TypeNatsJS represents nats-js stores
 	TypeNatsJS = "nats-js"
+	// TypeGroupcache represents groupcache stores
+	TypeGroupcache = "groupcache"
 )
 
 // Create initializes a new store

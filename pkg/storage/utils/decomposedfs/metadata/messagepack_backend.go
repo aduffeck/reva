@@ -29,8 +29,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cs3org/reva/v2/pkg/storage/cache"
+	gc "github.com/cs3org/reva/v2/pkg/storage/utils/decomposedfs/metadata/groupcache"
 	"github.com/google/renameio/v2"
+	"github.com/mailgun/groupcache/v2"
 	"github.com/pkg/xattr"
 	"github.com/rogpeppe/go-internal/lockedfile"
 	"github.com/shamaton/msgpack/v2"
@@ -39,8 +40,9 @@ import (
 
 // MessagePackBackend persists the attributes in messagepack format inside the file
 type MessagePackBackend struct {
-	rootPath  string
-	metaCache cache.FileMetadataCache
+	rootPath string
+	// metaCache cache.FileMetadataCache
+	cache *groupcache.Group
 }
 
 type readWriteCloseSeekTruncater interface {
@@ -50,11 +52,35 @@ type readWriteCloseSeekTruncater interface {
 }
 
 // NewMessagePackBackend returns a new MessagePackBackend instance
-func NewMessagePackBackend(rootPath string, o cache.Config) MessagePackBackend {
-	return MessagePackBackend{
-		rootPath:  filepath.Clean(rootPath),
-		metaCache: cache.GetFileMetadataCache(o.Store, o.Nodes, o.Database, "filemetadata:", time.Duration(o.TTL)*time.Second, o.Size),
+func NewMessagePackBackend(rootPath string, groupcacheName string) MessagePackBackend {
+	backend := MessagePackBackend{
+		rootPath: filepath.Clean(rootPath),
+		// metaCache: cache.GetFileMetadataCache(o.Store, o.Nodes, o.Database, "filemetadata:", time.Duration(o.TTL)*time.Second, o.Size),
 	}
+
+	_, err := gc.New(groupcacheName)
+	if err != nil {
+		return backend // TODO: handle error
+	}
+	// Create a new group cache with a max cache size of 1GB
+	var cache *groupcache.Group
+	if cache = groupcache.GetGroup(rootPath); cache == nil {
+		cache = groupcache.NewGroup(rootPath, 1024*1_000_000, groupcache.GetterFunc(
+			func(ctx context.Context, path string, dest groupcache.Sink) error {
+				metaPath := backend.MetadataPath(path)
+
+				d, err := os.ReadFile(metaPath)
+				if err != nil {
+					return err
+				}
+
+				return dest.SetBytes(d, time.Time{})
+			},
+		))
+	}
+	backend.cache = cache
+
+	return backend
 }
 
 // Name returns the name of the backend
@@ -201,72 +227,83 @@ func (b MessagePackBackend) saveAttributes(ctx context.Context, path string, set
 	subspan.End()
 
 	_, subspan = tracer.Start(ctx, "metaCache.PushToCache")
-	err = b.metaCache.PushToCache(b.cacheKey(path), attribs)
+	// err = b.metaCache.PushToCache(b.cacheKey(path), attribs)
+	err = b.cache.Set(ctx, path, d, time.Time{}, true)
 	subspan.End()
 	return err
 }
 
-func (b MessagePackBackend) loadAttributes(ctx context.Context, path string, source io.Reader) (map[string][]byte, error) {
+func (b MessagePackBackend) loadAttributes(ctx context.Context, path string, _ io.Reader) (map[string][]byte, error) {
 	ctx, span := tracer.Start(ctx, "loadAttributes")
 	defer span.End()
 	attribs := map[string][]byte{}
-	err := b.metaCache.PullFromCache(b.cacheKey(path), &attribs)
-	if err == nil {
-		return attribs, err
+	cachedBytes := []byte{}
+	if err := b.cache.Get(ctx, path, groupcache.AllocatingByteSliceSink(&cachedBytes)); err != nil {
+		return nil, err
 	}
-
-	metaPath := b.MetadataPath(path)
-	var msgBytes []byte
-
-	if source == nil {
-		// // No cached entry found. Read from storage and store in cache
-		_, subspan := tracer.Start(ctx, "os.OpenFile")
-		// source, err = lockedfile.Open(metaPath)
-		source, err = os.Open(metaPath)
-		subspan.End()
-		// // No cached entry found. Read from storage and store in cache
-		if err != nil {
-			if os.IsNotExist(err) {
-				// some of the caller rely on ENOTEXISTS to be returned when the
-				// actual file (not the metafile) does not exist in order to
-				// determine whether a node exists or not -> stat the actual node
-				_, subspan := tracer.Start(ctx, "os.Stat")
-				_, err := os.Stat(path)
-				subspan.End()
-				if err != nil {
-					return nil, err
-				}
-				return attribs, nil // no attributes set yet
-			}
-		}
-		_, subspan = tracer.Start(ctx, "io.ReadAll")
-		msgBytes, err = io.ReadAll(source)
-		source.(*os.File).Close()
-		subspan.End()
-	} else {
-		_, subspan := tracer.Start(ctx, "io.ReadAll")
-		msgBytes, err = io.ReadAll(source)
-		subspan.End()
-	}
-
+	err := msgpack.Unmarshal(cachedBytes, &attribs)
 	if err != nil {
 		return nil, err
 	}
-	if len(msgBytes) > 0 {
-		err = msgpack.Unmarshal(msgBytes, &attribs)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	_, subspan := tracer.Start(ctx, "metaCache.PushToCache")
-	err = b.metaCache.PushToCache(b.cacheKey(path), attribs)
-	subspan.End()
-	if err != nil {
-		return nil, err
-	}
-
 	return attribs, nil
+
+	// err := b.metaCache.PullFromCache(b.cacheKey(path), &attribs)
+	// if err == nil {
+	// 	return attribs, err
+	// }
+
+	// metaPath := b.MetadataPath(path)
+	// var msgBytes []byte
+
+	// if source == nil {
+	// 	// // No cached entry found. Read from storage and store in cache
+	// 	_, subspan := tracer.Start(ctx, "os.OpenFile")
+	// 	// source, err = lockedfile.Open(metaPath)
+	// 	source, err = os.Open(metaPath)
+	// 	subspan.End()
+	// 	// // No cached entry found. Read from storage and store in cache
+	// 	if err != nil {
+	// 		if os.IsNotExist(err) {
+	// 			// some of the caller rely on ENOTEXISTS to be returned when the
+	// 			// actual file (not the metafile) does not exist in order to
+	// 			// determine whether a node exists or not -> stat the actual node
+	// 			_, subspan := tracer.Start(ctx, "os.Stat")
+	// 			_, err := os.Stat(path)
+	// 			subspan.End()
+	// 			if err != nil {
+	// 				return nil, err
+	// 			}
+	// 			return attribs, nil // no attributes set yet
+	// 		}
+	// 	}
+	// 	_, subspan = tracer.Start(ctx, "io.ReadAll")
+	// 	msgBytes, err = io.ReadAll(source)
+	// 	source.(*os.File).Close()
+	// 	subspan.End()
+	// } else {
+	// 	_, subspan := tracer.Start(ctx, "io.ReadAll")
+	// 	msgBytes, err = io.ReadAll(source)
+	// 	subspan.End()
+	// }
+
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// if len(msgBytes) > 0 {
+	// 	err = msgpack.Unmarshal(msgBytes, &attribs)
+	// 	if err != nil {
+	// 		return nil, err
+	// 	}
+	// }
+
+	// _, subspan := tracer.Start(ctx, "metaCache.PushToCache")
+	// err = b.metaCache.PushToCache(b.cacheKey(path), attribs)
+	// subspan.End()
+	// if err != nil {
+	// 	return nil, err
+	// }
+
+	// return attribs, nil
 }
 
 // IsMetaFile returns whether the given path represents a meta file
@@ -276,7 +313,8 @@ func (MessagePackBackend) IsMetaFile(path string) bool {
 
 // Purge purges the data of a given path
 func (b MessagePackBackend) Purge(path string) error {
-	if err := b.metaCache.RemoveMetadata(b.cacheKey(path)); err != nil {
+	// if err := b.metaCache.RemoveMetadata(b.cacheKey(path)); err != nil {
+	if err := b.cache.Remove(context.Background(), path); err != nil {
 		return err
 	}
 	return os.Remove(b.MetadataPath(path))
@@ -284,18 +322,19 @@ func (b MessagePackBackend) Purge(path string) error {
 
 // Rename moves the data for a given path to a new path
 func (b MessagePackBackend) Rename(oldPath, newPath string) error {
-	data := map[string][]byte{}
-	err := b.metaCache.PullFromCache(b.cacheKey(oldPath), &data)
-	if err == nil {
-		err = b.metaCache.PushToCache(b.cacheKey(newPath), data)
-		if err != nil {
-			return err
-		}
-	}
-	err = b.metaCache.RemoveMetadata(b.cacheKey(oldPath))
-	if err != nil {
-		return err
-	}
+	// data := map[string][]byte{}
+	// err := b.metaCache.PullFromCache(b.cacheKey(oldPath), &data)
+	// if err == nil {
+	// 	err = b.metaCache.PushToCache(b.cacheKey(newPath), data)
+	// 	if err != nil {
+	// 		return err
+	// 	}
+	// }
+	// err = b.metaCache.RemoveMetadata(b.cacheKey(oldPath))
+	// if err != nil {
+	// 	return err
+	// }
+	b.cache.Remove(context.Background(), oldPath)
 
 	return os.Rename(b.MetadataPath(oldPath), b.MetadataPath(newPath))
 }

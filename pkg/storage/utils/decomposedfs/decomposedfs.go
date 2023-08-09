@@ -130,7 +130,7 @@ func NewDefault(m map[string]interface{}, bs tree.Blobstore, es events.Stream) (
 	case "xattrs":
 		lu = lookup.New(metadata.XattrsBackend{}, o)
 	case "messagepack":
-		lu = lookup.New(metadata.NewMessagePackBackend(o.Root, o.FileMetadataCache), o)
+		lu = lookup.New(metadata.NewMessagePackBackend(o.Root, o.GroupCacheName), o)
 	default:
 		return nil, fmt.Errorf("unknown metadata backend %s, only 'messagepack' or 'xattrs' (default) supported", o.MetadataBackend)
 	}
