@@ -40,18 +40,25 @@ import (
 	"github.com/cs3org/reva/v2/pkg/ocm/client"
 	"github.com/cs3org/reva/v2/pkg/ocm/share"
 	"github.com/cs3org/reva/v2/pkg/ocm/share/repository/registry"
+	"github.com/cs3org/reva/v2/pkg/plugin"
 	"github.com/cs3org/reva/v2/pkg/rgrpc"
 	"github.com/cs3org/reva/v2/pkg/rgrpc/status"
 	"github.com/cs3org/reva/v2/pkg/rgrpc/todo/pool"
 	"github.com/cs3org/reva/v2/pkg/sharedconf"
+	"github.com/cs3org/reva/v2/pkg/storage/utils/walker"
 	"github.com/cs3org/reva/v2/pkg/utils"
-	"github.com/mitchellh/mapstructure"
+	"github.com/cs3org/reva/v2/pkg/utils/cfg"
 	"github.com/pkg/errors"
 	"google.golang.org/grpc"
 )
 
 func init() {
 	rgrpc.Register("ocmshareprovider", New)
+	plugin.RegisterNamespace("grpc.services.ocmshareprovider.drivers", func(name string, newFunc any) {
+		var f registry.NewFunc
+		utils.Cast(newFunc, &f)
+		registry.Register(name, f)
+	})
 }
 
 type config struct {
@@ -59,9 +66,9 @@ type config struct {
 	Drivers        map[string]map[string]interface{} `mapstructure:"drivers"`
 	ClientTimeout  int                               `mapstructure:"client_timeout"`
 	ClientInsecure bool                              `mapstructure:"client_insecure"`
-	GatewaySVC     string                            `mapstructure:"gatewaysvc"`
-	ProviderDomain string                            `mapstructure:"provider_domain" docs:"The same domain registered in the provider authorizer"`
-	WebDAVEndpoint string                            `mapstructure:"webdav_endpoint"`
+	GatewaySVC     string                            `mapstructure:"gatewaysvc"      validate:"required"`
+	ProviderDomain string                            `mapstructure:"provider_domain" validate:"required" docs:"The same domain registered in the provider authorizer"`
+	WebDAVEndpoint string                            `mapstructure:"webdav_endpoint" validate:"required"`
 	WebappTemplate string                            `mapstructure:"webapp_template"`
 }
 
@@ -71,9 +78,10 @@ type service struct {
 	client     *client.OCMClient
 	gateway    gateway.GatewayAPIClient
 	webappTmpl *template.Template
+	walker     walker.Walker
 }
 
-func (c *config) init() {
+func (c *config) ApplyDefaults() {
 	if c.Driver == "" {
 		c.Driver = "json"
 	}
@@ -91,31 +99,21 @@ func (s *service) Register(ss *grpc.Server) {
 	ocm.RegisterOcmAPIServer(ss, s)
 }
 
-func getShareRepository(c *config) (share.Repository, error) {
+func getShareRepository(ctx context.Context, c *config) (share.Repository, error) {
 	if f, ok := registry.NewFuncs[c.Driver]; ok {
-		return f(c.Drivers[c.Driver])
+		return f(ctx, c.Drivers[c.Driver])
 	}
 	return nil, errtypes.NotFound("driver not found: " + c.Driver)
 }
 
-func parseConfig(m map[string]interface{}) (*config, error) {
-	c := &config{}
-	if err := mapstructure.Decode(m, c); err != nil {
-		err = errors.Wrap(err, "error decoding conf")
-		return nil, err
-	}
-	return c, nil
-}
-
 // New creates a new ocm share provider svc.
-func New(m map[string]interface{}, ss *grpc.Server) (rgrpc.Service, error) {
-	c, err := parseConfig(m)
-	if err != nil {
+func New(ctx context.Context, m map[string]interface{}) (rgrpc.Service, error) {
+	var c config
+	if err := cfg.Decode(m, &c); err != nil {
 		return nil, err
 	}
-	c.init()
 
-	repo, err := getShareRepository(c)
+	repo, err := getShareRepository(ctx, &c)
 	if err != nil {
 		return nil, err
 	}
@@ -134,13 +132,15 @@ func New(m map[string]interface{}, ss *grpc.Server) (rgrpc.Service, error) {
 	if err != nil {
 		return nil, err
 	}
+	walker := walker.NewWalker(gateway)
 
 	service := &service{
-		conf:       c,
+		conf:       &c,
 		repo:       repo,
 		client:     client,
 		gateway:    gateway,
 		webappTmpl: tpl,
+		walker:     walker,
 	}
 
 	return service, nil
@@ -193,8 +193,9 @@ func (s *service) getWebdavProtocol(ctx context.Context, share *ocm.Share, m *oc
 	}
 
 	return &ocmd.WebDAV{
-		Permissions: perms,
-		URL:         s.webdavURL(ctx, share),
+		Permissions:  perms,
+		URL:          s.webdavURL(ctx, share),
+		SharedSecret: share.Token,
 	}
 }
 
@@ -209,11 +210,36 @@ func (s *service) getWebappProtocol(share *ocm.Share) *ocmd.Webapp {
 }
 
 func (s *service) getDataTransferProtocol(ctx context.Context, share *ocm.Share) *ocmd.Datatx {
-	// TODO discover the size
+	var size uint64
+	// get the path of the share
+	statRes, err := s.gateway.Stat(ctx, &providerpb.StatRequest{
+		Ref: &providerpb.Reference{
+			ResourceId: share.ResourceId,
+		},
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	path := statRes.GetInfo().Path
+	err = s.walk(ctx, path, func(path string, info *providerpb.ResourceInfo, err error) error {
+		if info.Type == providerpb.ResourceType_RESOURCE_TYPE_FILE {
+			size += info.Size
+		}
+		return nil
+	})
+	if err != nil {
+		panic(err)
+	}
 	return &ocmd.Datatx{
 		SourceURI: s.webdavURL(ctx, share),
-		Size:      0,
+		Size:      size,
 	}
+}
+
+// walk traverses the path recursively to discover all resources in the tree.
+func (s *service) walk(ctx context.Context, path string, fn walker.WalkFunc) error {
+	return s.walker.Walk(ctx, path, fn)
 }
 
 func (s *service) getProtocols(ctx context.Context, share *ocm.Share) ocmd.Protocols {
@@ -299,7 +325,7 @@ func (s *service) CreateOCMShare(ctx context.Context, req *ocm.CreateOCMShareReq
 	newShareReq := &client.NewShareRequest{
 		ShareWith:  formatOCMUser(req.Grantee.GetUserId()),
 		Name:       ocmshare.Name,
-		ResourceID: fmt.Sprintf("%s:%s", req.ResourceId.StorageId, req.ResourceId.OpaqueId),
+		ProviderID: ocmshare.Id.OpaqueId,
 		Owner: formatOCMUser(&userpb.UserId{
 			OpaqueId: info.Owner.OpaqueId,
 			Idp:      s.conf.ProviderDomain, // FIXME: this is not generally true in case of resharing
@@ -429,7 +455,12 @@ func (s *service) ListOCMShares(ctx context.Context, req *ocm.ListOCMSharesReque
 
 func (s *service) UpdateOCMShare(ctx context.Context, req *ocm.UpdateOCMShareRequest) (*ocm.UpdateOCMShareResponse, error) {
 	user := ctxpkg.ContextMustGetUser(ctx)
-	_, err := s.repo.UpdateShare(ctx, user, req.Ref, req.Field.GetPermissions()) // TODO(labkode): check what to update
+	if len(req.Field) == 0 {
+		return &ocm.UpdateOCMShareResponse{
+			Status: status.NewOK(ctx),
+		}, nil
+	}
+	_, err := s.repo.UpdateShare(ctx, user, req.Ref, req.Field...)
 	if err != nil {
 		if errors.Is(err, share.ErrShareNotFound) {
 			return &ocm.UpdateOCMShareResponse{
@@ -465,7 +496,7 @@ func (s *service) ListReceivedOCMShares(ctx context.Context, req *ocm.ListReceiv
 
 func (s *service) UpdateReceivedOCMShare(ctx context.Context, req *ocm.UpdateReceivedOCMShareRequest) (*ocm.UpdateReceivedOCMShareResponse, error) {
 	user := ctxpkg.ContextMustGetUser(ctx)
-	_, err := s.repo.UpdateReceivedShare(ctx, user, req.Share, req.UpdateMask) // TODO(labkode): check what to update
+	_, err := s.repo.UpdateReceivedShare(ctx, user, req.Share, req.UpdateMask)
 	if err != nil {
 		if errors.Is(err, share.ErrShareNotFound) {
 			return &ocm.UpdateReceivedOCMShareResponse{

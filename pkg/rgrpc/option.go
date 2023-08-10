@@ -16,44 +16,47 @@
 // granted to it by virtue of its status as an Intergovernmental Organization
 // or submit itself to any jurisdiction.
 
-package pool
+package rgrpc
 
-const (
-	defaultMaxCallRecvMsgSize = 10240000
+import (
+	"github.com/rs/zerolog"
+	"google.golang.org/grpc"
 )
 
-// Option defines a single option function.
-type Option func(o *Options)
+type Option func(*Server)
 
-// Options defines the available options for this package.
-type Options struct {
-	Endpoint           string
-	MaxCallRecvMsgSize int
-}
-
-// newOptions initializes the available default options.
-func newOptions(opts ...Option) Options {
-	opt := Options{
-		MaxCallRecvMsgSize: defaultMaxCallRecvMsgSize,
-	}
-
-	for _, o := range opts {
-		o(&opt)
-	}
-
-	return opt
-}
-
-// Endpoint provides a function to set the endpoint option.
-func Endpoint(val string) Option {
-	return func(o *Options) {
-		o.Endpoint = val
+func WithShutdownDeadline(deadline int) Option {
+	return func(s *Server) {
+		s.ShutdownDeadline = deadline
 	}
 }
 
-// MaxCallRecvMsgSize provides a function to set the MaxCallRecvMsgSize option.
-func MaxCallRecvMsgSize(size int) Option {
-	return func(o *Options) {
-		o.MaxCallRecvMsgSize = size
+func EnableReflection(enable bool) Option {
+	return func(s *Server) {
+		s.EnableReflection = enable
+	}
+}
+
+func WithServices(services map[string]Service) Option {
+	return func(s *Server) {
+		s.services = services
+	}
+}
+
+func WithLogger(logger zerolog.Logger) Option {
+	return func(s *Server) {
+		s.log = logger
+	}
+}
+
+func WithStreamServerInterceptors(in []grpc.StreamServerInterceptor) Option {
+	return func(s *Server) {
+		s.StreamServerInterceptors = in
+	}
+}
+
+func WithUnaryServerInterceptors(in []grpc.UnaryServerInterceptor) Option {
+	return func(s *Server) {
+		s.UnaryServerInterceptors = in
 	}
 }

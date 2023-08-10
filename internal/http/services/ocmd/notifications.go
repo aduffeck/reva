@@ -25,7 +25,7 @@ import (
 
 	gateway "github.com/cs3org/go-cs3apis/cs3/gateway/v1beta1"
 
-	"github.com/cs3org/reva/internal/http/services/reqres"
+	"github.com/cs3org/reva/v2/internal/http/services/reqres"
 	"github.com/cs3org/reva/v2/pkg/appctx"
 	"github.com/cs3org/reva/v2/pkg/rgrpc/todo/pool"
 )

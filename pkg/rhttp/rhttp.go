@@ -30,7 +30,6 @@ import (
 	"github.com/cs3org/reva/v2/internal/http/interceptors/appctx"
 	"github.com/cs3org/reva/v2/internal/http/interceptors/auth"
 	"github.com/cs3org/reva/v2/internal/http/interceptors/log"
-	"github.com/cs3org/reva/v2/internal/http/interceptors/providerauthorizer"
 	"github.com/cs3org/reva/v2/pkg/rhttp/global"
 	"github.com/cs3org/reva/v2/pkg/rhttp/router"
 	rtrace "github.com/cs3org/reva/v2/pkg/trace"
@@ -286,14 +285,6 @@ func (s *Server) getHandler() (http.Handler, error) {
 	// and cannot be configured from the configuration.
 	coreMiddlewares := []*middlewareTriple{}
 
-	providerAuthMiddle, err := addProviderAuthMiddleware(s.conf, s.unprotected)
-	if err != nil {
-		return nil, errors.Wrap(err, "rhttp: error creating providerauthorizer middleware")
-	}
-	if providerAuthMiddle != nil {
-		coreMiddlewares = append(coreMiddlewares, &middlewareTriple{Middleware: providerAuthMiddle, Name: "providerauthorizer"})
-	}
-
 	coreMiddlewares = append(coreMiddlewares, &middlewareTriple{Middleware: authMiddle, Name: "auth"})
 	coreMiddlewares = append(coreMiddlewares, &middlewareTriple{Middleware: log.New(), Name: "log"})
 	coreMiddlewares = append(coreMiddlewares, &middlewareTriple{Middleware: appctx.New(s.log, s.tracerProvider), Name: "appctx"})
@@ -315,14 +306,4 @@ func traceHandler(name string, h http.Handler, tp trace.TracerProvider) http.Han
 		rtrace.Propagator.Inject(ctx, propagation.HeaderCarrier(r.Header))
 		h.ServeHTTP(w, r.WithContext(ctx))
 	})
-}
-
-func addProviderAuthMiddleware(conf *config, unprotected []string) (global.Middleware, error) {
-	_, ocmdRegistered := global.Services["ocmd"]
-	_, ocmdEnabled := conf.Services["ocmd"]
-	ocmdPrefix, _ := conf.Services["ocmd"]["prefix"].(string)
-	if ocmdRegistered && ocmdEnabled {
-		return providerauthorizer.New(conf.Middlewares["providerauthorizer"], unprotected, ocmdPrefix)
-	}
-	return nil, nil
 }

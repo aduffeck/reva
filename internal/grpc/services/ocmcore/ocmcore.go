@@ -30,15 +30,21 @@ import (
 	"github.com/cs3org/reva/v2/pkg/errtypes"
 	"github.com/cs3org/reva/v2/pkg/ocm/share"
 	"github.com/cs3org/reva/v2/pkg/ocm/share/repository/registry"
+	"github.com/cs3org/reva/v2/pkg/plugin"
 	"github.com/cs3org/reva/v2/pkg/rgrpc"
 	"github.com/cs3org/reva/v2/pkg/rgrpc/status"
-	"github.com/mitchellh/mapstructure"
-	"github.com/pkg/errors"
+	"github.com/cs3org/reva/v2/pkg/utils"
+	"github.com/cs3org/reva/v2/pkg/utils/cfg"
 	"google.golang.org/grpc"
 )
 
 func init() {
 	rgrpc.Register("ocmcore", New)
+	plugin.RegisterNamespace("grpc.services.ocmcore.drivers", func(name string, newFunc any) {
+		var f registry.NewFunc
+		utils.Cast(newFunc, &f)
+		registry.Register(name, f)
+	})
 }
 
 type config struct {
@@ -51,7 +57,7 @@ type service struct {
 	repo share.Repository
 }
 
-func (c *config) init() {
+func (c *config) ApplyDefaults() {
 	if c.Driver == "" {
 		c.Driver = "json"
 	}
@@ -61,37 +67,27 @@ func (s *service) Register(ss *grpc.Server) {
 	ocmcore.RegisterOcmCoreAPIServer(ss, s)
 }
 
-func getShareRepository(c *config) (share.Repository, error) {
+func getShareRepository(ctx context.Context, c *config) (share.Repository, error) {
 	if f, ok := registry.NewFuncs[c.Driver]; ok {
-		return f(c.Drivers[c.Driver])
+		return f(ctx, c.Drivers[c.Driver])
 	}
 	return nil, errtypes.NotFound(fmt.Sprintf("driver not found: %s", c.Driver))
 }
 
-func parseConfig(m map[string]interface{}) (*config, error) {
-	c := &config{}
-	if err := mapstructure.Decode(m, c); err != nil {
-		err = errors.Wrap(err, "error decoding conf")
-		return nil, err
-	}
-	return c, nil
-}
-
 // New creates a new ocm core svc.
-func New(m map[string]interface{}, ss *grpc.Server) (rgrpc.Service, error) {
-	c, err := parseConfig(m)
-	if err != nil {
+func New(ctx context.Context, m map[string]interface{}) (rgrpc.Service, error) {
+	var c config
+	if err := cfg.Decode(m, &c); err != nil {
 		return nil, err
 	}
-	c.init()
 
-	repo, err := getShareRepository(c)
+	repo, err := getShareRepository(ctx, &c)
 	if err != nil {
 		return nil, err
 	}
 
 	service := &service{
-		conf: c,
+		conf: &c,
 		repo: repo,
 	}
 
@@ -117,10 +113,8 @@ func (s *service) CreateOCMCoreShare(ctx context.Context, req *ocmcore.CreateOCM
 	}
 
 	share, err := s.repo.StoreReceivedShare(ctx, &ocm.ReceivedShare{
-		ResourceId: &providerpb.ResourceId{
-			OpaqueId: req.ResourceId,
-		},
-		Name: req.Name,
+		RemoteShareId: req.ResourceId,
+		Name:          req.Name,
 		Grantee: &providerpb.Grantee{
 			Type: providerpb.GranteeType_GRANTEE_TYPE_USER,
 			Id: &providerpb.Grantee_UserId{
@@ -149,4 +143,12 @@ func (s *service) CreateOCMCoreShare(ctx context.Context, req *ocmcore.CreateOCM
 		Id:      share.Id.OpaqueId,
 		Created: share.Ctime,
 	}, nil
+}
+
+func (s *service) UpdateOCMCoreShare(ctx context.Context, req *ocmcore.UpdateOCMCoreShareRequest) (*ocmcore.UpdateOCMCoreShareResponse, error) {
+	return nil, errtypes.NotSupported("not implemented")
+}
+
+func (s *service) DeleteOCMCoreShare(ctx context.Context, req *ocmcore.DeleteOCMCoreShareRequest) (*ocmcore.DeleteOCMCoreShareResponse, error) {
+	return nil, errtypes.NotSupported("not implemented")
 }

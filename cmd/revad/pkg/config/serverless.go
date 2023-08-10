@@ -16,44 +16,39 @@
 // granted to it by virtue of its status as an Intergovernmental Organization
 // or submit itself to any jurisdiction.
 
-package pool
+package config
 
-const (
-	defaultMaxCallRecvMsgSize = 10240000
+import (
+	"github.com/mitchellh/mapstructure"
+	"github.com/pkg/errors"
 )
 
-// Option defines a single option function.
-type Option func(o *Options)
-
-// Options defines the available options for this package.
-type Options struct {
-	Endpoint           string
-	MaxCallRecvMsgSize int
+// Serverless holds the configuration for the serverless services.
+type Serverless struct {
+	Services map[string]map[string]any `key:"services" mapstructure:"services"`
 }
 
-// newOptions initializes the available default options.
-func newOptions(opts ...Option) Options {
-	opt := Options{
-		MaxCallRecvMsgSize: defaultMaxCallRecvMsgSize,
+func (c *Config) parseServerless(raw map[string]any) error {
+	cfg, ok := raw["serverless"]
+	if !ok {
+		return nil
 	}
 
-	for _, o := range opts {
-		o(&opt)
+	var s Serverless
+	if err := mapstructure.Decode(cfg, &s); err != nil {
+		return errors.Wrap(err, "config: error decoding serverless config")
 	}
 
-	return opt
+	c.Serverless = &s
+	return nil
 }
 
-// Endpoint provides a function to set the endpoint option.
-func Endpoint(val string) Option {
-	return func(o *Options) {
-		o.Endpoint = val
+// ForEach iterates to each service calling the function f.
+func (s *Serverless) ForEach(f func(name string, config map[string]any) error) error {
+	for name, cfg := range s.Services {
+		if err := f(name, cfg); err != nil {
+			return err
+		}
 	}
-}
-
-// MaxCallRecvMsgSize provides a function to set the MaxCallRecvMsgSize option.
-func MaxCallRecvMsgSize(size int) Option {
-	return func(o *Options) {
-		o.MaxCallRecvMsgSize = size
-	}
+	return nil
 }
