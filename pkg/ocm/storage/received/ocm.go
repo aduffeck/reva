@@ -44,7 +44,8 @@ import (
 	"github.com/cs3org/reva/v2/pkg/storagespace"
 	"github.com/cs3org/reva/v2/pkg/utils"
 	"github.com/cs3org/reva/v2/pkg/utils/cfg"
-	"github.com/studio-b12/gowebdav"
+	webdav "github.com/emersion/go-webdav"
+	webdaverrors "github.com/emersion/go-webdav/errors"
 )
 
 func init() {
@@ -135,7 +136,7 @@ func getWebDAVProtocol(protocols []*ocmpb.Protocol) (*ocmpb.WebDAVProtocol, bool
 	return nil, false
 }
 
-func (d *driver) webdavClient(ctx context.Context, ref *provider.Reference) (*gowebdav.Client, *ocmpb.ReceivedShare, string, error) {
+func (d *driver) webdavClient(ctx context.Context, ref *provider.Reference) (*webdav.Client, *ocmpb.ReceivedShare, string, error) {
 	id, rel := shareInfoFromReference(ref)
 
 	share, endpoint, secret, err := d.getWebDAVFromShare(ctx, id)
@@ -148,12 +149,13 @@ func (d *driver) webdavClient(ctx context.Context, ref *provider.Reference) (*go
 		return nil, nil, "", err
 	}
 
-	// FIXME: it's still not clear from the OCM APIs how to use the shared secret
-	// will use as a token in the bearer authentication as this is the reva implementation
-	c := gowebdav.NewClient(endpoint, "", "")
-	c.SetHeader("Authorization", "Bearer "+secret)
+	httpClient := webdav.HTTPClientWithBearerAuth(nil, secret)
+	client, err := webdav.NewClient(httpClient, endpoint)
+	if err != nil {
+		return nil, nil, "", err
+	}
 
-	return c, share, rel, nil
+	return client, share, rel, nil
 }
 
 func (d *driver) CreateDir(ctx context.Context, ref *provider.Reference) error {
@@ -161,7 +163,7 @@ func (d *driver) CreateDir(ctx context.Context, ref *provider.Reference) error {
 	if err != nil {
 		return err
 	}
-	return client.MkdirAll(rel, 0)
+	return client.Mkdir(rel)
 }
 
 func (d *driver) Delete(ctx context.Context, ref *provider.Reference) error {
@@ -177,7 +179,11 @@ func (d *driver) TouchFile(ctx context.Context, ref *provider.Reference, markpro
 	if err != nil {
 		return err
 	}
-	return client.Write(rel, []byte{}, 0)
+	w, err := client.Create(rel)
+	if err != nil {
+		return err
+	}
+	return w.Close()
 }
 
 func (d *driver) Move(ctx context.Context, oldRef, newRef *provider.Reference) error {
@@ -187,7 +193,7 @@ func (d *driver) Move(ctx context.Context, oldRef, newRef *provider.Reference) e
 	}
 	_, relNew := shareInfoFromReference(newRef)
 
-	return client.Rename(relOld, relNew, false)
+	return client.MoveAll(relOld, relNew, false)
 }
 
 func getPathFromShareIDAndRelPath(shareID *ocmpb.ShareId, relPath string) string {
@@ -235,7 +241,7 @@ func (d *driver) GetMD(ctx context.Context, ref *provider.Reference, _ []string,
 
 	info, err := client.Stat(rel)
 	if err != nil {
-		if gowebdav.IsErrNotFound(err) {
+		if webdaverrors.IsNotFound(err) {
 			return nil, errtypes.NotFound(ref.GetPath())
 		}
 		return nil, err
@@ -257,7 +263,11 @@ func (d *driver) ListFolder(ctx context.Context, ref *provider.Reference, _ []st
 
 	res := make([]*provider.ResourceInfo, 0, len(list))
 	for _, r := range list {
-		res = append(res, convertStatToResourceInfo(ref, r, share))
+		info, err := r.Info()
+		if err != nil {
+			continue
+		}
+		res = append(res, convertStatToResourceInfo(ref, info, share))
 	}
 	return res, nil
 }
@@ -276,17 +286,26 @@ func (d *driver) Upload(ctx context.Context, req storage.UploadRequest, _ storag
 	if err != nil {
 		return provider.ResourceInfo{}, err
 	}
-	client.SetInterceptor(func(method string, rq *http.Request) {
+	client.SetInterceptor(func(rq *http.Request) {
 		// Set the content length on the request struct directly instead of the header.
 		// The content-length header gets reset by the golang http library before
 		// sendind out the request, resulting in chunked encoding to be used which
 		// breaks the quota checks in ocdav.
-		if method == "PUT" {
+		if rq.Method == "PUT" {
 			rq.ContentLength = req.Length
 		}
 	})
 
-	return provider.ResourceInfo{}, client.WriteStream(rel, req.Body, 0)
+	w, err := client.Create(rel)
+	if err != nil {
+		return provider.ResourceInfo{}, err
+	}
+	_, err = io.Copy(w, req.Body)
+	if err != nil {
+		return provider.ResourceInfo{}, err
+	}
+
+	return provider.ResourceInfo{}, w.Close()
 }
 
 func (d *driver) Download(ctx context.Context, ref *provider.Reference) (io.ReadCloser, error) {
@@ -295,7 +314,7 @@ func (d *driver) Download(ctx context.Context, ref *provider.Reference) (io.Read
 		return nil, err
 	}
 
-	return client.ReadStream(rel)
+	return client.Open(rel)
 }
 
 func (d *driver) GetPathByID(ctx context.Context, id *provider.ResourceId) (string, error) {
