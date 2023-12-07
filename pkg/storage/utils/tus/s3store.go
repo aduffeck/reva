@@ -322,17 +322,9 @@ func (upload s3Upload) WriteChunk(ctx context.Context, offset int64, src io.Read
 		src = io.MultiReader(incompletePartFile, src)
 	}
 
-	fileChan := make(chan *os.File, store.MaxBufferedParts)
+	fileChan := make(chan *bytes.Reader, store.MaxBufferedParts)
 	doneChan := make(chan struct{})
 	defer close(doneChan)
-
-	// If we panic or return while there are still files in the channel, then
-	// we may leak file descriptors. Let's ensure that those are cleaned up.
-	defer func() {
-		for file := range fileChan {
-			cleanUpTempFile(file)
-		}
-	}()
 
 	partProducer := s3PartProducer{
 		store: store,
@@ -342,12 +334,8 @@ func (upload s3Upload) WriteChunk(ctx context.Context, offset int64, src io.Read
 	}
 	go partProducer.produce(optimalPartSize)
 
-	for file := range fileChan {
-		stat, err := file.Stat()
-		if err != nil {
-			return 0, err
-		}
-		n := stat.Size()
+	for buf := range fileChan {
+		n := buf.Size()
 
 		isFinalChunk := !info.SizeIsDeferred && (size == (offset-incompletePartSize)+n)
 		if n >= store.MinPartSize || isFinalChunk {
@@ -357,15 +345,24 @@ func (upload s3Upload) WriteChunk(ctx context.Context, offset int64, src io.Read
 				UploadId:   aws.String(multipartId),
 				PartNumber: aws.Int64(nextPartNum),
 			}
-			if err := upload.putPartForUpload(ctx, uploadPartInput, file, n); err != nil {
+			if err := upload.putPartForUpload(ctx, uploadPartInput, buf, n); err != nil {
 				return bytesUploaded, err
 			}
 		} else {
-			if err := store.putIncompletePartForUpload(ctx, uploadId, file); err != nil {
+			if err := store.putIncompletePartForUpload(ctx, uploadId, buf); err != nil {
 				return bytesUploaded, err
 			}
 
 			bytesUploaded += n
+
+			session, err := upload.GetSession(ctx)
+			if err != nil {
+				return bytesUploaded - incompletePartSize, err
+			}
+			session.Offset = offset
+			if err := session.Persist(ctx); err != nil {
+				return bytesUploaded - incompletePartSize, err
+			}
 
 			return (bytesUploaded - incompletePartSize), nil
 		}
@@ -392,9 +389,7 @@ func cleanUpTempFile(file *os.File) {
 	os.Remove(file.Name())
 }
 
-func (upload *s3Upload) putPartForUpload(ctx context.Context, uploadPartInput *s3.UploadPartInput, file *os.File, size int64) error {
-	defer cleanUpTempFile(file)
-
+func (upload *s3Upload) putPartForUpload(ctx context.Context, uploadPartInput *s3.UploadPartInput, file *bytes.Reader, size int64) error {
 	if !upload.store.DisableContentHashes {
 		// By default, use the traditional approach to upload data
 		uploadPartInput.Body = file
@@ -866,9 +861,7 @@ func (store S3Store) getIncompletePartForUpload(ctx context.Context, uploadId st
 	return obj, err
 }
 
-func (store S3Store) putIncompletePartForUpload(ctx context.Context, uploadId string, file *os.File) error {
-	defer cleanUpTempFile(file)
-
+func (store S3Store) putIncompletePartForUpload(ctx context.Context, uploadId string, file *bytes.Reader) error {
 	_, err := store.Service.PutObjectWithContext(ctx, &s3.PutObjectInput{
 		Bucket: aws.String(store.Bucket),
 		Key:    store.metadataKeyWithPrefix(uploadId + ".part"),
@@ -899,7 +892,7 @@ func splitIds(id string) (uploadId, multipartId string) {
 // s3PartProducer converts a stream of bytes from the reader into a stream of files on disk
 type s3PartProducer struct {
 	store *S3Store
-	files chan<- *os.File
+	files chan<- *bytes.Reader
 	done  chan struct{}
 	err   error
 	r     io.Reader
@@ -926,31 +919,20 @@ func (spp *s3PartProducer) produce(partSize int64) {
 	}
 }
 
-func (spp *s3PartProducer) nextPart(size int64) (*os.File, error) {
-	// Create a temporary file to store the part
-	file, err := ioutil.TempFile(spp.store.TemporaryDirectory, "tusd-s3-tmp-")
-	if err != nil {
-		return nil, err
-	}
-
+func (spp *s3PartProducer) nextPart(size int64) (*bytes.Reader, error) {
+	buf := new(bytes.Buffer)
 	limitedReader := io.LimitReader(spp.r, size)
-	n, err := io.Copy(file, limitedReader)
+
+	n, err := io.Copy(buf, limitedReader)
 	if err != nil {
 		return nil, err
 	}
 
-	// If the entire request body is read and no more data is available,
-	// io.Copy returns 0 since it is unable to read any bytes. In that
-	// case, we can close the s3PartProducer.
 	if n == 0 {
-		cleanUpTempFile(file)
 		return nil, nil
 	}
 
-	// Seek to the beginning of the file
-	file.Seek(0, 0)
-
-	return file, nil
+	return bytes.NewReader(buf.Bytes()), nil
 }
 
 // This regular expression matches every character which is not
