@@ -5,12 +5,11 @@ import (
 )
 
 type Storage interface {
+	Queue(t *task.Task) error
 	Pull() (*task.Task, error)
-}
 
-type Worker struct {
+	Len() int
 }
-
 type WorkQueue struct {
 	storage Storage
 }
@@ -28,4 +27,8 @@ func New(opts ...Option) *WorkQueue {
 
 func (wq *WorkQueue) Storage() Storage {
 	return wq.storage
+}
+
+func (wq *WorkQueue) Push(t *task.Task) error {
+	return wq.storage.Queue(t)
 }
