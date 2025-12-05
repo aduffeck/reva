@@ -1,21 +1,26 @@
 package task
 
+import "github.com/google/uuid"
+
+// Task represents a unit of work in the queue.
 type Task struct {
-	taskType string
-	payload  string
+	Type    string `json:"type"`
+	ID      string `json:"id"`
+	Status  string `json:"status"`
+	Payload string `json:"payload"`
 }
 
+// NewTask creates a new task with the given type and payload.
 func NewTask(taskType, payload string) *Task {
 	return &Task{
-		taskType: taskType,
-		payload:  payload,
+		ID:      uuid.New().String(),
+		Type:    taskType,
+		Payload: payload,
+		Status:  "pending",
 	}
 }
 
-func (t *Task) Type() string {
-	return t.taskType
-}
-
-func (t *Task) Payload() string {
-	return t.payload
+// SetStatus sets the current status of the task.
+func (t *Task) SetStatus(status string) {
+	t.Status = status
 }

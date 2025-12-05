@@ -9,6 +9,9 @@ type Storage interface {
 	Queue(t *task.Task) error
 	Pull() (*task.Task, error)
 
+	Ack(t *task.Task) error
+	Nack(t *task.Task) error
+
 	Len() int
 }
 type WorkQueue struct {
@@ -38,4 +41,11 @@ func (wq *WorkQueue) Storage() Storage {
 
 func (wq *WorkQueue) Push(t *task.Task) error {
 	return wq.storage.Queue(t)
+}
+
+func (wq *WorkQueue) NewWorker() *Worker {
+	return &Worker{
+		storage: wq.storage,
+		log:     wq.log,
+	}
 }

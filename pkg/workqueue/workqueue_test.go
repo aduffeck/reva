@@ -9,7 +9,7 @@ import (
 	"github.com/opencloud-eu/reva/v2/pkg/workqueue/task"
 )
 
-var _ = Describe("Workqueue", func() {
+var _ = Describe("Workqueue with a memory storage", func() {
 	var (
 		memStorage workqueue.Storage
 		wq         *workqueue.WorkQueue
@@ -50,9 +50,9 @@ var _ = Describe("Workqueue", func() {
 		)
 
 		BeforeEach(func() {
-			worker = workqueue.NewWorker(wq)
+			worker = wq.NewWorker()
 			worker.Handle("test.process", func(t *task.Task) error {
-				result = append(result, t.Payload())
+				result = append(result, t.Payload)
 				return nil
 			})
 		})
@@ -64,6 +64,7 @@ var _ = Describe("Workqueue", func() {
 		It("processes a task", func() {
 			task := task.NewTask("test.process", "test payload")
 			Expect(wq.Push(task)).To(Succeed())
+			Expect(wq.Storage().Len()).To(Equal(1))
 
 			go worker.Start()
 
@@ -71,17 +72,19 @@ var _ = Describe("Workqueue", func() {
 				g.Expect(wq.Storage().Len()).To(Equal(0))
 				g.Expect(len(result)).To(Equal(1))
 				g.Expect(result[0]).To(Equal("test payload"))
+
 			}).Should(Succeed())
 		})
 
-		It("handles unknown task types", func() {
+		It("nacks unknown task types", func() {
 			task := task.NewTask("unknown.type", "test payload")
 			Expect(wq.Push(task)).To(Succeed())
+			Expect(wq.Storage().Len()).To(Equal(1))
 
 			go worker.Start()
 
-			Eventually(func(g Gomega) {
-				g.Expect(wq.Storage().Len()).To(Equal(0))
+			Consistently(func(g Gomega) {
+				g.Expect(wq.Storage().Len()).To(Equal(1))
 			}).Should(Succeed())
 		})
 	})
