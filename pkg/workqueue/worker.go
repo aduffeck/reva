@@ -5,16 +5,18 @@ import (
 	"github.com/rs/zerolog"
 )
 
+type handlerFunc func(*task.Task) error
+
 type Worker struct {
 	storage Storage
 	log     *zerolog.Logger
 
-	handlers map[string]func(*task.Task) error
+	handlers map[string]handlerFunc
 }
 
-func (w *Worker) Handle(taskType string, handler func(*task.Task) error) {
+func (w *Worker) Handle(taskType string, handler handlerFunc) {
 	if w.handlers == nil {
-		w.handlers = make(map[string]func(*task.Task) error)
+		w.handlers = make(map[string]handlerFunc)
 	}
 	w.handlers[taskType] = handler
 }
@@ -35,6 +37,7 @@ func (w *Worker) Start() {
 				if err := handler(task); err != nil {
 					w.storage.Nack(task)
 					w.log.Error().Msg("error while handling task " + task.Type)
+					return
 				}
 				w.storage.Ack(task)
 			} else {
