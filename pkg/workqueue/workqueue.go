@@ -2,6 +2,7 @@ package workqueue
 
 import (
 	"github.com/opencloud-eu/reva/v2/pkg/workqueue/task"
+	"github.com/rs/zerolog"
 )
 
 type Storage interface {
@@ -12,6 +13,7 @@ type Storage interface {
 }
 type WorkQueue struct {
 	storage Storage
+	log     *zerolog.Logger
 }
 
 func New(opts ...Option) *WorkQueue {
@@ -20,8 +22,13 @@ func New(opts ...Option) *WorkQueue {
 		opt(&o)
 	}
 
+	if o.log == nil {
+		o.log = &zerolog.Logger{}
+	}
+
 	return &WorkQueue{
 		storage: o.storage,
+		log:     o.log,
 	}
 }
 
