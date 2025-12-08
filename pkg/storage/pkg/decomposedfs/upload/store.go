@@ -43,6 +43,9 @@ import (
 	"github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/node"
 	"github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/options"
 	"github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/usermapper"
+	"github.com/opencloud-eu/reva/v2/pkg/storagespace"
+	"github.com/opencloud-eu/reva/v2/pkg/workqueue"
+	"github.com/opencloud-eu/reva/v2/pkg/workqueue/task"
 	"github.com/pkg/errors"
 	"github.com/rogpeppe/go-internal/lockedfile"
 	"github.com/rs/zerolog"
@@ -68,6 +71,8 @@ type DecomposedFsStore struct {
 	tknopts           options.TokenOptions
 	disableVersioning bool
 	log               *zerolog.Logger
+
+	workqueue *workqueue.WorkQueue
 }
 
 // NewSessionStore returns a new DecomposedFsStore
@@ -83,6 +88,7 @@ func NewSessionStore(fs storage.FS, aspects aspects.Aspects, root string, async 
 		disableVersioning: aspects.DisableVersioning,
 		um:                aspects.UserMapper,
 		log:               log,
+		workqueue:         aspects.WorkQueue,
 	}
 }
 
@@ -431,4 +437,17 @@ func validateChecksums(ctx context.Context, n *node.Node, session *DecomposedFsS
 	}
 
 	return nil
+}
+
+func (store DecomposedFsStore) ScheduleChecksumming(ctx context.Context, session *DecomposedFsSession) {
+	err := store.workqueue.Push(&task.Task{
+		Type: "node.calculate-checksums",
+		Payload: storagespace.FormatResourceID(&provider.ResourceId{
+			SpaceId:  session.SpaceID(),
+			OpaqueId: session.NodeID(),
+		}),
+	})
+	if err != nil {
+		appctx.GetLogger(ctx).Error().Err(err).Str("nodeid", session.NodeID()).Msg("could not schedule checksum calculation")
+	}
 }

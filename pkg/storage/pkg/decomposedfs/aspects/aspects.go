@@ -24,6 +24,7 @@ import (
 	"github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/permissions"
 	"github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/trashbin"
 	"github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/usermapper"
+	"github.com/opencloud-eu/reva/v2/pkg/workqueue"
 )
 
 // Aspects holds dependencies for handling aspects of the decomposedfs
@@ -35,4 +36,5 @@ type Aspects struct {
 	EventStream       events.Stream
 	DisableVersioning bool
 	UserMapper        usermapper.Mapper
+	WorkQueue         *workqueue.WorkQueue
 }

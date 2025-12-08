@@ -56,6 +56,7 @@ import (
 	"github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/options"
 	"github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/permissions"
 	"github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/spaceidindex"
+	"github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/tasks"
 	"github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/timemanager"
 	"github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/trashbin"
 	"github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/tree"
@@ -67,6 +68,8 @@ import (
 	"github.com/opencloud-eu/reva/v2/pkg/storagespace"
 	"github.com/opencloud-eu/reva/v2/pkg/store"
 	"github.com/opencloud-eu/reva/v2/pkg/utils"
+	"github.com/opencloud-eu/reva/v2/pkg/workqueue"
+	wqstorage "github.com/opencloud-eu/reva/v2/pkg/workqueue/storage"
 )
 
 type CtxKey int
@@ -226,6 +229,10 @@ func New(o *options.Options, aspects aspects.Aspects, log *zerolog.Logger) (stor
 	if aspects.UserMapper == nil {
 		aspects.UserMapper = &usermapper.NullMapper{}
 	}
+	if aspects.WorkQueue == nil {
+		aspects.WorkQueue = workqueue.New(workqueue.WithStorage(wqstorage.NewMemory()))
+	}
+	tasks.Spawn(aspects.Lookup, aspects.WorkQueue, log)
 
 	fs := &Decomposedfs{
 		tp:              aspects.Tree,

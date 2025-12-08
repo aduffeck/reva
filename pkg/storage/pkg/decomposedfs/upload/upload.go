@@ -135,15 +135,14 @@ func (session *DecomposedFsSession) FinishUploadDecomposed(ctx context.Context) 
 
 	ctx = ctxpkg.ContextSetInitiator(ctx, session.InitiatorID())
 
-	sha1h, md5h, adler32h, err := node.CalculateChecksums(ctx, session.binPath())
-	if err != nil {
-		return err
-	}
-
+	attrs := node.Attributes{}
 	// compare if they match the sent checksum
 	// TODO the tus checksum extension would do this on every chunk, but I currently don't see an easy way to pass in the requested checksum. for now we do it in FinishUpload which is also called for chunked uploads
 	if session.info.MetaData["checksum"] != "" {
-		var err error
+		sha1h, md5h, adler32h, err := node.CalculateChecksums(ctx, session.binPath())
+		if err != nil {
+			return err
+		}
 		parts := strings.SplitN(session.info.MetaData["checksum"], " ", 2)
 		if len(parts) != 2 {
 			return errtypes.BadRequest("invalid checksum format. must be '[algorithm] [checksum]'")
@@ -162,13 +161,15 @@ func (session *DecomposedFsSession) FinishUploadDecomposed(ctx context.Context) 
 			session.store.Cleanup(ctx, session, true, false, false)
 			return err
 		}
-	}
 
-	// update checksums
-	attrs := node.Attributes{
-		prefixes.ChecksumPrefix + "sha1":    sha1h.Sum(nil),
-		prefixes.ChecksumPrefix + "md5":     md5h.Sum(nil),
-		prefixes.ChecksumPrefix + "adler32": adler32h.Sum(nil),
+		// update checksums
+		attrs = node.Attributes{
+			prefixes.ChecksumPrefix + "sha1":    sha1h.Sum(nil),
+			prefixes.ChecksumPrefix + "md5":     md5h.Sum(nil),
+			prefixes.ChecksumPrefix + "adler32": adler32h.Sum(nil),
+		}
+	} else {
+		defer session.store.ScheduleChecksumming(ctx, session)
 	}
 
 	// At this point we scope by the space to create the final file in the final location
